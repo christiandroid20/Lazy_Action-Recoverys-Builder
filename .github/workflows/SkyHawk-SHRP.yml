@@ -1,39 +1,7 @@
-name: SkyHawk [SHRP Auto Builder]
+name: SHRP A35x Clean Build
 
 on:
   workflow_dispatch:
-    inputs:
-      MANIFEST:
-        description: "SHRP Manifest"
-        required: true
-        default: "https://github.com/SHRP-Reborn/manifest.git"
-
-      MANIFEST_BRANCH:
-        description: "Branch"
-        required: true
-        type: choice
-        options:
-          - shrp-12.1
-          - shrp-9.0
-
-      DEVICE_TREE:
-        description: "Device Tree"
-        required: true
-        default: "https://github.com/lazycodebuilder/recovery_rmx1851"
-
-      DEVICE_TREE_BRANCH:
-        description: "Device Branch"
-        required: true
-        default: "android-14_shrp"
-
-      BUILD_TARGET:
-        description: "Target"
-        required: true
-        type: choice
-        options:
-          - boot
-          - recovery
-          - vendor_boot
 
 jobs:
   build:
@@ -42,33 +10,35 @@ jobs:
       contents: write
 
     env:
+      DEVICE_MAKEFILE: omni_a35x
+      DEVICE_NAME: a35x
       ALLOW_MISSING_DEPENDENCIES: true
+
+      # Fix OrangeFox conflicts
       FOX_TARGET_DEVICES: a35x
       FOX_BUILD_DEVICE: a35x
       FOX_BUILD_TYPE: Beta
 
     steps:
 
-    # 📦 1. Descarga el repo del workflow
+    # 📦 1. Checkout
     - name: Checkout
       uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
 
-    # ☕ 2. Java (necesario para Android build system)
+    # ☕ 2. Java
     - name: Setup Java
       uses: actions/setup-java@v4
       with:
         distribution: zulu
         java-version: 8
 
-    # 📥 3. Dependencias del sistema
+    # ⚙️ 3. Dependencias mínimas
     - name: Install deps
       run: |
         sudo apt update
-        sudo apt install -y git curl bc bison build-essential zip unzip flex gperf python3 libncurses5-dev
+        sudo apt install -y git curl bc bison build-essential zip unzip flex gperf python3 ccache libncurses5-dev
 
-    # 🧰 4. Repo tool (Android source manager)
+    # 🧰 4. Repo tool
     - name: Install repo
       run: |
         mkdir -p ~/bin
@@ -76,93 +46,60 @@ jobs:
         chmod +x ~/bin/repo
         echo "$HOME/bin" >> $GITHUB_PATH
 
-    # 📂 5. Inicializar SHRP manifest
+    # ⚡ 5. ccache (velocidad)
+    - name: Setup ccache
+      run: |
+        ccache -M 10G
+        ccache -z
+
+    # 📂 6. Init repo SHRP
     - name: Init repo
       run: |
         mkdir android-recovery && cd android-recovery
-        git config --global user.name "github-actions"
-        git config --global user.email "actions@github.com"
-        repo init -u ${{ inputs.MANIFEST }} -b ${{ inputs.MANIFEST_BRANCH }} --depth=1
+        repo init -u https://github.com/SHRP-Reborn/manifest.git -b shrp-12.1 --depth=1
 
-    # 🔄 6. Sync source
+    # 🔄 7. Sync optimizado
     - name: Sync repo
       run: |
         cd android-recovery
-        repo sync -c --force-sync --no-tags --no-clone-bundle -j$(nproc)
+        repo sync -c --force-sync --no-tags --no-clone-bundle --optimized-fetch -j2
 
-    # 📱 7. Clonar device tree
+    # 🔧 8. Fix vendor/shrp (por si falla el manifest)
+    - name: Fix vendor shrp
+      run: |
+        cd android-recovery
+        if [ ! -d "vendor/shrp" ]; then
+          git clone https://github.com/SHRP-Reborn/android_vendor_shrp vendor/shrp
+        fi
+
+    # 📱 9. Clonar tu device tree
     - name: Clone device tree
       run: |
         cd android-recovery
-        git clone --depth=1 ${{ inputs.DEVICE_TREE }} -b ${{ inputs.DEVICE_TREE_BRANCH }} device_tree
+        git clone --depth=1 https://github.com/lazycodebuilder/recovery_rmx1851 device/samsung/a35x
 
-    # 🧠 8. AUTO DETECTOR (IMPORTANTE)
-    - name: Auto detect device
-      run: |
-        cd android-recovery/device_tree
-
-        echo "🔍 Detectando device automáticamente..."
-
-        MK=$(ls *.mk 2>/dev/null | head -n 1)
-
-        if [ -z "$MK" ]; then
-          echo "❌ No .mk found, using fallback a35x"
-          MAKEFILE="omni_a35x"
-          CODENAME="a35x"
-        else
-          MAKEFILE=$(grep -m1 "PRODUCT_NAME" $MK | awk -F ':=' '{print $2}' | tr -d ' ')
-          CODENAME=$(grep -m1 "PRODUCT_DEVICE" $MK | awk -F ':=' '{print $2}' | tr -d ' ')
-        fi
-
-        echo "✔ MAKEFILE=$MAKEFILE"
-        echo "✔ CODENAME=$CODENAME"
-
-        echo "DEVICE_MAKEFILE=$MAKEFILE" >> $GITHUB_ENV
-        echo "DEVICE_NAME=$CODENAME" >> $GITHUB_ENV
-
-    # 🧱 9. Build system fix (evita OrangeFox crash)
-    - name: Build environment fix
-      run: |
-        cd android-recovery
-
-        export FOX_TARGET_DEVICES="a35x"
-        export FOX_BUILD_DEVICE="a35x"
-        export FOX_BUILD_TYPE="Beta"
-        export ALLOW_MISSING_DEPENDENCIES=true
-
-        export FOX_USE_TWRP_RECOVERY_IMAGE_BUILDER=1
-        export FOX_NO_SAMSUNG_SPECIAL=1
-        export LC_ALL=C
-
-    # ⚙️ 10. Build SHRP real
+    # ⚙️ 10. Build limpio
     - name: Build SHRP
       run: |
         cd android-recovery
 
-        source build/envsetup.sh || true
+        export CCACHE_DIR=$HOME/.ccache
 
-        echo "👉 Lunching: $DEVICE_MAKEFILE"
+        source build/envsetup.sh
 
-        if [ -z "$DEVICE_MAKEFILE" ]; then
-          echo "❌ DEVICE_MAKEFILE is empty"
-          exit 1
-        fi
+        echo "👉 Lunching: $DEVICE_MAKEFILE-eng"
 
         lunch $DEVICE_MAKEFILE-eng || exit 1
 
         mka clean
-        mka ${{ inputs.BUILD_TARGET }}image -j$(nproc)
+        mka recoveryimage -j2
 
-    # 📅 11. Fecha build
-    - name: Build date
-      run: echo "BUILD_DATE=$(date +%Y%m%d)" >> $GITHUB_ENV
-
-    # 🚀 12. Release automático
+    # 📦 11. Subir resultado
     - name: Release
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ github.run_id }}
-        name: SHRP ${{ env.DEVICE_NAME }} ${{ env.BUILD_DATE }}
+        name: SHRP A35x Build
         files: |
           android-recovery/out/target/product/${{ env.DEVICE_NAME }}/*.img
           android-recovery/out/target/product/${{ env.DEVICE_NAME }}/*.zip
