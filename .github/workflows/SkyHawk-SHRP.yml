@@ -15,12 +15,12 @@ on:
       DEVICE_TREE:
         description: "Device Tree Repo"
         required: true
-        default: "https://github.com/lazycodebuilder/recovery_rmx1851"
+        default: "https://github.com/christiandroid20/android_device_samsung_a35x"
 
       DEVICE_TREE_BRANCH:
         description: "Device Tree Branch"
         required: true
-        default: "android-14_shrp"
+        default: "android-12.1"
 
       BUILD_TARGET:
         description: "Build Target"
@@ -47,26 +47,25 @@ jobs:
       FOX_BUILD_DEVICE: a35x
       FOX_BUILD_TYPE: Beta
 
+      # 🔥 FIX CRÍTICO
+      SHRP_BUILD_TYPE: Beta
+
     steps:
 
-    # 📦 Checkout
     - name: Checkout
       uses: actions/checkout@v4
 
-    # ☕ Java
     - name: Setup Java
       uses: actions/setup-java@v4
       with:
         distribution: zulu
         java-version: 8
 
-    # ⚙️ Dependencias
     - name: Install deps
       run: |
         sudo apt update
         sudo apt install -y git curl bc bison build-essential zip unzip flex gperf python3 ccache libncurses5-dev
 
-    # 🧰 repo tool
     - name: Install repo
       run: |
         mkdir -p ~/bin
@@ -74,29 +73,21 @@ jobs:
         chmod +x ~/bin/repo
         echo "$HOME/bin" >> $GITHUB_PATH
 
-    # ⚡ ccache
     - name: Setup ccache
       run: |
         ccache -M 10G
         ccache -z
 
-    # 📂 Init repo (usa tu input)
     - name: Init repo
       run: |
         mkdir android-recovery && cd android-recovery
         repo init -u https://github.com/SHRP-Reborn/manifest.git -b ${{ inputs.MANIFEST_BRANCH }} --depth=1
 
-    # 🚀 Sync optimizado
     - name: Sync repo
       run: |
         cd android-recovery
-        echo "👉 Sync started..."
-        date
         repo sync -c -j4 --force-sync --no-tags --optimized-fetch
-        echo "👉 Sync finished..."
-        date
 
-    # 🔧 Fix vendor/shrp
     - name: Fix vendor shrp
       run: |
         cd android-recovery
@@ -104,18 +95,19 @@ jobs:
           git clone https://github.com/SHRP-Reborn/android_vendor_shrp vendor/shrp
         fi
 
-    # 📱 Device tree dinámico
     - name: Clone device tree
       run: |
         cd android-recovery
         git clone --depth=1 ${{ inputs.DEVICE_TREE }} -b ${{ inputs.DEVICE_TREE_BRANCH }} device/samsung/a35x
 
-    # ⚙️ Build
     - name: Build SHRP
       run: |
         cd android-recovery
 
         export CCACHE_DIR=$HOME/.ccache
+
+        # 🔥 REFUERZO (por si env no lo toma bien)
+        export SHRP_BUILD_TYPE=Beta
 
         source build/envsetup.sh
 
@@ -125,7 +117,6 @@ jobs:
         mka clean
         mka ${{ inputs.BUILD_TARGET }}image -j4
 
-    # 📦 Release
     - name: Release
       uses: softprops/action-gh-release@v2
       with:
