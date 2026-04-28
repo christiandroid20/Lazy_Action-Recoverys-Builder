@@ -1,7 +1,36 @@
-name: SHRP A35x Clean Build
+name: SHRP A35x Builder
 
 on:
   workflow_dispatch:
+    inputs:
+      MANIFEST_BRANCH:
+        description: "SHRP Branch"
+        required: true
+        default: "shrp-12.1"
+        type: choice
+        options:
+          - shrp-12.1
+          - shrp-9.0
+
+      DEVICE_TREE:
+        description: "Device Tree Repo"
+        required: true
+        default: "https://github.com/lazycodebuilder/recovery_rmx1851"
+
+      DEVICE_TREE_BRANCH:
+        description: "Device Tree Branch"
+        required: true
+        default: "android-14_shrp"
+
+      BUILD_TARGET:
+        description: "Build Target"
+        required: true
+        default: "recovery"
+        type: choice
+        options:
+          - recovery
+          - boot
+          - vendor_boot
 
 jobs:
   build:
@@ -14,31 +43,30 @@ jobs:
       DEVICE_NAME: a35x
       ALLOW_MISSING_DEPENDENCIES: true
 
-      # Fix OrangeFox conflicts
       FOX_TARGET_DEVICES: a35x
       FOX_BUILD_DEVICE: a35x
       FOX_BUILD_TYPE: Beta
 
     steps:
 
-    # 📦 1. Checkout
+    # 📦 Checkout
     - name: Checkout
       uses: actions/checkout@v4
 
-    # ☕ 2. Java
+    # ☕ Java
     - name: Setup Java
       uses: actions/setup-java@v4
       with:
         distribution: zulu
         java-version: 8
 
-    # ⚙️ 3. Dependencias mínimas
+    # ⚙️ Dependencias
     - name: Install deps
       run: |
         sudo apt update
         sudo apt install -y git curl bc bison build-essential zip unzip flex gperf python3 ccache libncurses5-dev
 
-    # 🧰 4. Repo tool
+    # 🧰 repo tool
     - name: Install repo
       run: |
         mkdir -p ~/bin
@@ -46,25 +74,29 @@ jobs:
         chmod +x ~/bin/repo
         echo "$HOME/bin" >> $GITHUB_PATH
 
-    # ⚡ 5. ccache (velocidad)
+    # ⚡ ccache
     - name: Setup ccache
       run: |
         ccache -M 10G
         ccache -z
 
-    # 📂 6. Init repo SHRP
+    # 📂 Init repo (usa tu input)
     - name: Init repo
       run: |
         mkdir android-recovery && cd android-recovery
-        repo init -u https://github.com/SHRP-Reborn/manifest.git -b shrp-12.1 --depth=1
+        repo init -u https://github.com/SHRP-Reborn/manifest.git -b ${{ inputs.MANIFEST_BRANCH }} --depth=1
 
-    # 🔄 7. Sync optimizado
+    # 🚀 Sync optimizado
     - name: Sync repo
       run: |
         cd android-recovery
-        repo sync -c --force-sync --no-tags --no-clone-bundle --optimized-fetch -j2
+        echo "👉 Sync started..."
+        date
+        repo sync -c -j4 --force-sync --no-tags --optimized-fetch
+        echo "👉 Sync finished..."
+        date
 
-    # 🔧 8. Fix vendor/shrp (por si falla el manifest)
+    # 🔧 Fix vendor/shrp
     - name: Fix vendor shrp
       run: |
         cd android-recovery
@@ -72,13 +104,13 @@ jobs:
           git clone https://github.com/SHRP-Reborn/android_vendor_shrp vendor/shrp
         fi
 
-    # 📱 9. Clonar tu device tree
+    # 📱 Device tree dinámico
     - name: Clone device tree
       run: |
         cd android-recovery
-        git clone --depth=1 https://github.com/lazycodebuilder/recovery_rmx1851 device/samsung/a35x
+        git clone --depth=1 ${{ inputs.DEVICE_TREE }} -b ${{ inputs.DEVICE_TREE_BRANCH }} device/samsung/a35x
 
-    # ⚙️ 10. Build limpio
+    # ⚙️ Build
     - name: Build SHRP
       run: |
         cd android-recovery
@@ -88,18 +120,17 @@ jobs:
         source build/envsetup.sh
 
         echo "👉 Lunching: $DEVICE_MAKEFILE-eng"
-
         lunch $DEVICE_MAKEFILE-eng || exit 1
 
         mka clean
-        mka recoveryimage -j2
+        mka ${{ inputs.BUILD_TARGET }}image -j4
 
-    # 📦 11. Subir resultado
+    # 📦 Release
     - name: Release
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ github.run_id }}
-        name: SHRP A35x Build
+        name: SHRP A35x ${{ inputs.BUILD_TARGET }}
         files: |
           android-recovery/out/target/product/${{ env.DEVICE_NAME }}/*.img
           android-recovery/out/target/product/${{ env.DEVICE_NAME }}/*.zip
