@@ -35,17 +35,6 @@ on:
           - recovery
           - vendor_boot
 
-      LDCHECK:
-        description: 'Use LDCHECK'
-        required: false
-        default: false
-        type: boolean
-
-      LDCHECKPATH:
-        description: 'Blob path'
-        required: true
-        default: 'system/bin/qseecomd'
-
 jobs:
   build:
     runs-on: ubuntu-22.04
@@ -54,6 +43,9 @@ jobs:
 
     env:
       ALLOW_MISSING_DEPENDENCIES: true
+      FOX_TARGET_DEVICES: a35x
+      FOX_BUILD_DEVICE: a35x
+      FOX_BUILD_TYPE: Beta
 
     steps:
     - name: Checkout
@@ -72,7 +64,7 @@ jobs:
         sudo apt update
         sudo apt install -y git curl python3 bc bison build-essential zip unzip flex gperf libncurses5-dev
 
-    - name: Install repo tool
+    - name: Install repo
       run: |
         mkdir -p ~/bin
         curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
@@ -96,15 +88,12 @@ jobs:
         cd android-recovery
         git clone --depth=1 ${{ inputs.DEVICE_TREE }} -b ${{ inputs.DEVICE_TREE_BRANCH }} device_tree
 
-    - name: Detect device config
+    - name: Detect device
       run: |
         cd android-recovery/device_tree
 
         MK=$(ls *.mk 2>/dev/null | head -n 1)
-
-        if [ -z "$MK" ]; then
-          echo "No .mk file found!" && exit 1
-        fi
+        [ -z "$MK" ] && echo "No .mk found" && exit 1
 
         MAKEFILE=$(grep -m1 "PRODUCT_NAME" $MK | cut -d ':' -f2 | tr -d ' ')
         BRAND=$(grep -m1 "PRODUCT_BRAND" $MK | cut -d ':' -f2 | tr -d ' ')
@@ -114,23 +103,34 @@ jobs:
         echo "DEVICE_NAME=$CODENAME" >> $GITHUB_ENV
         echo "DEVICE_DIR=device/$BRAND/$CODENAME" >> $GITHUB_ENV
 
-    - name: Move tree
+    - name: Move device tree
       run: |
         cd android-recovery
         mkdir -p $DEVICE_DIR
         mv device_tree $DEVICE_DIR/
 
+    # 🔥 FIX CRÍTICO ORANGEFOX / SHRP CONFLICT
     - name: Build SHRP
       run: |
         cd android-recovery
-        source build/envsetup.sh
+
+        export FOX_TARGET_DEVICES="a35x"
+        export FOX_BUILD_DEVICE="a35x"
+        export FOX_BUILD_TYPE="Beta"
+        export ALLOW_MISSING_DEPENDENCIES=true
+
+        export FOX_USE_TWRP_RECOVERY_IMAGE_BUILDER=1
+        export FOX_NO_SAMSUNG_SPECIAL=1
+        export LC_ALL=C
+
+        source build/envsetup.sh || true
 
         lunch $DEVICE_MAKEFILE-eng || exit 1
 
         mka clean
         mka ${{ inputs.BUILD_TARGET }}image -j$(nproc)
 
-    - name: Build info
+    - name: Build date
       run: echo "BUILD_DATE=$(date +%Y%m%d)" >> $GITHUB_ENV
 
     - name: Release
