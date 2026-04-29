@@ -1,4 +1,4 @@
-name: SHRPBuilder
+name: SkyHakw Recovery Project [SHRP]
 
 on:
   workflow_dispatch:
@@ -98,6 +98,18 @@ jobs:
       run: |
         cd android-recovery
         git clone --depth=1 ${{ inputs.DEVICE_TREE }} -b ${{ inputs.DEVICE_TREE_BRANCH }} device/samsung/a35x
+
+    - name: Fix Pre-Release bug (SHRP)
+      run: |
+        cd android-recovery
+        echo "🔍 Buscando Pre-Release en el árbol..."
+        grep -R "Pre-Release" . || true
+
+        echo "🛠 Aplicando fix global..."
+        find . -type f -exec sed -i 's/Pre-Release/Release/g' {} + || true
+
+        echo "✅ Verificando que ya no exista..."
+        grep -R "Pre-Release" . || true
 
     - name: Build SHRP
       run: |
