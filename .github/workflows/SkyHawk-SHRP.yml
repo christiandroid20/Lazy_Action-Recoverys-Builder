@@ -45,10 +45,10 @@ jobs:
 
       FOX_TARGET_DEVICES: a35x
       FOX_BUILD_DEVICE: a35x
-      FOX_BUILD_TYPE: Beta
+      FOX_BUILD_TYPE: Release
 
       # 🔥 FIX CRÍTICO
-      SHRP_BUILD_TYPE: Beta
+      SHRP_BUILD_TYPE: Release
 
     steps:
 
@@ -107,7 +107,7 @@ jobs:
         export CCACHE_DIR=$HOME/.ccache
 
         # 🔥 REFUERZO (por si env no lo toma bien)
-        export SHRP_BUILD_TYPE=Beta
+        export SHRP_BUILD_TYPE=Release
 
         source build/envsetup.sh
 
