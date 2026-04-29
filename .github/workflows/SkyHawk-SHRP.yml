@@ -64,7 +64,7 @@ jobs:
     - name: Install deps
       run: |
         sudo apt update
-        sudo apt install -y git curl bc bison build-essential zip unzip flex gperf python3 ccache libncurses5-dev
+        sudo apt install -y git curl bc bison build-essential zip unzip flex gperf python3 ccache libncurses5-dev libssl-dev
 
     - name: Install repo
       run: |
@@ -86,7 +86,7 @@ jobs:
     - name: Sync repo
       run: |
         cd android-recovery
-        repo sync -c -j4 --force-sync --no-tags --optimized-fetch
+        repo sync -c -j$(nproc --all) --force-sync --no-tags --optimized-fetch
 
     - name: Fix vendor shrp
       run: |
@@ -99,6 +99,8 @@ jobs:
       run: |
         cd android-recovery
         git clone --depth=1 ${{ inputs.DEVICE_TREE }} -b ${{ inputs.DEVICE_TREE_BRANCH }} device/samsung/a35x
+
+export ALLOW_MISSING_DEPENDENCIES=true
 
     - name: Build SHRP
       run: |
