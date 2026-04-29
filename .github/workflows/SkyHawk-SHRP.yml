@@ -1,4 +1,4 @@
-name: SHRP A35x Builder
+name: SHRPBuilder
 
 on:
   workflow_dispatch:
