@@ -47,7 +47,6 @@ jobs:
       FOX_BUILD_DEVICE: a35x
       FOX_BUILD_TYPE: Release
 
-      # 🔥 FIX CRÍTICO
       SHRP_BUILD_TYPE: Release
 
     steps:
@@ -100,15 +99,12 @@ jobs:
         cd android-recovery
         git clone --depth=1 ${{ inputs.DEVICE_TREE }} -b ${{ inputs.DEVICE_TREE_BRANCH }} device/samsung/a35x
 
-export ALLOW_MISSING_DEPENDENCIES=true
-
     - name: Build SHRP
       run: |
         cd android-recovery
 
         export CCACHE_DIR=$HOME/.ccache
-
-        # 🔥 REFUERZO (por si env no lo toma bien)
+        export ALLOW_MISSING_DEPENDENCIES=true
         export SHRP_BUILD_TYPE=Release
 
         source build/envsetup.sh
