@@ -1,17 +1,16 @@
-name: SkyHakw Recovery Project [SHRP]
+name: SkyHawk Recovery Project [SHRP]
 
 on:
-workflow_dispatch:
-inputs:
-MANIFEST_BRANCH:
-description: "SHRP Branch"
-required: true
-default: "shrp-12.1"
-type: choice
-options:
-- shrp-12.1
-- shrp-9.0
-
+  workflow_dispatch:
+    inputs:
+      MANIFEST_BRANCH:
+        description: "SHRP Branch"
+        required: true
+        default: "shrp-12.1"
+        type: choice
+        options:
+          - shrp-12.1
+          - shrp-9.0
 ```
   DEVICE_TREE:
     description: "Device Tree Repo"
