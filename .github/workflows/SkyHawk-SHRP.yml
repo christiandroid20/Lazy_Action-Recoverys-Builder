@@ -35,12 +35,131 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
-
     permissions:
       contents: write
 
-    steps:
-      - uses: actions/checkout@v4
+    env:
+      DEVICE_MAKEFILE: omni_a35x
+      DEVICE_NAME: a35x
+      ALLOW_MISSING_DEPENDENCIES: true
 
-      - name: Test
-        run: echo "workflow working"
+      FOX_TARGET_DEVICES: a35x
+      FOX_BUILD_DEVICE: a35x
+      FOX_BUILD_TYPE: Release
+
+      SHRP_BUILD_TYPE: Release
+
+      USE_CCACHE: 1
+      CCACHE_EXEC: /usr/bin/ccache
+
+    steps:
+
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    # 🔥 FIX REAL DE ESPACIO (clave para que compile sin morir)
+    - name: Free up disk space
+      run: |
+        echo "Antes:"
+        df -h
+
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /opt/ghc
+        sudo rm -rf /usr/local/lib/android
+        sudo rm -rf /opt/hostedtoolcache
+
+        sudo apt clean
+        sudo apt autoremove -y
+
+        echo "Después:"
+        df -h
+
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: zulu
+        java-version: 8
+
+    - name: Install deps
+      run: |
+        sudo apt update
+        sudo apt install -y git curl bc bison build-essential zip unzip flex gperf \
+          python3 ccache libncurses5-dev libssl-dev libxml2-utils rsync repo
+
+    - name: Setup repo tool
+      run: |
+        mkdir -p ~/bin
+        curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
+        chmod +x ~/bin/repo
+        echo "$HOME/bin" >> $GITHUB_PATH
+
+    - name: Setup ccache
+      run: |
+        ccache -M 10G
+        ccache -o compression=true
+        ccache -z
+
+    - name: Init repo
+      run: |
+        mkdir android-recovery && cd android-recovery
+        repo init -u https://github.com/SHRP-Reborn/manifest.git \
+          -b ${{ inputs.MANIFEST_BRANCH }} --depth=1
+
+    - name: Sync repo (optimized)
+      run: |
+        cd android-recovery
+        repo sync -c -j$(nproc --all) \
+          --force-sync --no-tags --no-clone-bundle --optimized-fetch
+
+    - name: Fix vendor shrp
+      run: |
+        cd android-recovery
+        if [ ! -d "vendor/shrp" ]; then
+          git clone https://github.com/SHRP-Reborn/android_vendor_shrp vendor/shrp
+        fi
+
+    - name: Clone device tree
+      run: |
+        cd android-recovery
+        git clone --depth=1 ${{ inputs.DEVICE_TREE }} \
+          -b ${{ inputs.DEVICE_TREE_BRANCH }} device/samsung/a35x
+
+    # 🔧 FIX SHRP PRE-RELEASE BUG
+    - name: Fix Pre-Release bug (SHRP)
+      run: |
+        cd android-recovery
+        grep -R "Pre-Release" . || true
+        find . -type f -exec sed -i 's/Pre-Release/Release/g' {} + || true
+        grep -R "Pre-Release" . || true
+
+    - name: Build SHRP
+      run: |
+        cd android-recovery
+
+        export CCACHE_DIR=$HOME/.ccache
+        export ALLOW_MISSING_DEPENDENCIES=true
+        export SHRP_BUILD_TYPE=Release
+
+        source build/envsetup.sh
+
+        echo "👉 Lunching: $DEVICE_MAKEFILE-eng"
+        lunch $DEVICE_MAKEFILE-eng || exit 1
+
+        mka ${{ inputs.BUILD_TARGET }}image -j$(nproc --all)
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: SHRP-Build
+        path: android-recovery/out/target/product/*/*.{img,zip}
+
+    - name: Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ github.run_id }}
+        name: SHRP ${{ inputs.BUILD_TARGET }} Build
+        files: |
+          android-recovery/out/target/product/${{ env.DEVICE_NAME }}/*.img
+          android-recovery/out/target/product/${{ env.DEVICE_NAME }}/*.zip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
