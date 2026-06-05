@@ -1,27 +1,21 @@
-name: SkyHawk Recovery Project [SHRP]
+name: SkyHawk SHRP Reborn Builder
 
 on:
   workflow_dispatch:
     inputs:
       MANIFEST_BRANCH:
-        description: "SHRP Branch"
+        description: "SHRP Reborn Branch"
         required: true
         default: "shrp-12.1"
+        type: choice
+        options:
+          - shrp-12.1
+          - shrp-9.0
 
       DEVICE_TREE:
         description: "Device Tree Repo"
         required: true
-        default: "https://github.com/christiandroid20/android_device_samsung_a35x"
-
-      DEVICE_TREE_BRANCH:
-        description: "Device Tree Branch"
-        required: true
-        default: "android-12.1"
-
-      BUILD_TARGET:
-        description: "Build Target"
-        required: true
-        default: "recovery"
+        default: https://github.com/christiandroid20/android_device_samsung_a54x/tree/shrp-12.1
 
 jobs:
   build:
@@ -32,68 +26,61 @@ jobs:
       DEVICE_NAME: a35x
       ALLOW_MISSING_DEPENDENCIES: true
       USE_CCACHE: 1
+      CCACHE_EXEC: /usr/bin/ccache
 
     steps:
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y git curl python3 ccache bc bison build-essential \
+          flex g++-multilib gcc-multilib libxml2-utils make \
+          openjdk-11-jdk zip unzip rsync
 
-    - name: Free space
-      run: |
-        sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android
-        sudo apt clean
-        sudo rm -rf /var/lib/apt/lists/*
-        df -h
+      - name: Setup repo (FIXED - latest version)
+        run: |
+          mkdir -p ~/bin
+          curl -o ~/bin/repo https://storage.googleapis.com/git-repo-downloads/repo
+          chmod +x ~/bin/repo
+          echo "$HOME/bin" >> $GITHUB_PATH
 
-    - name: Install deps
-      run: |
-        sudo apt update
-        sudo apt install -y git curl bc bison build-essential zip unzip flex gperf \
-          python3 ccache libncurses5-dev libssl-dev rsync repo
+      - name: Init SHRP Reborn
+        run: |
+          mkdir android-recovery
+          cd android-recovery
 
-    - name: Setup repo
-      run: |
-        mkdir android-recovery && cd android-recovery
-        repo init -u https://github.com/SHRP-Reborn/manifest.git \
-          -b ${{ github.event.inputs.MANIFEST_BRANCH }} --depth=1
+          repo init -u https://github.com/SHRP-Reborn/manifest.git -b ${{ inputs.MANIFEST_BRANCH }}
 
-    - name: Sync repo (safe)
-      run: |
-        cd android-recovery
-        repo sync -c --no-tags --no-clone-bundle --force-sync -j2
+      - name: Sync source (OPTIMIZED)
+        run: |
+          cd android-recovery
 
-    - name: Fix vendor
-      run: |
-        cd android-recovery
-        [ -d vendor/shrp ] || git clone https://github.com/SHRP-Reborn/android_vendor_shrp vendor/shrp
+          repo sync -c \
+            --no-tags \
+            --no-clone-bundle \
+            --optimized-fetch \
+            --prune \
+            -j8
 
-    - name: Clone device tree
-      run: |
-        cd android-recovery
-        git clone --depth=1 ${{ github.event.inputs.DEVICE_TREE }} \
-          -b ${{ github.event.inputs.DEVICE_TREE_BRANCH }} device/samsung/a35x
+      - name: Setup ccache
+        run: |
+          export USE_CCACHE=1
+          ccache -M 10G
+          ccache -o compression=true
 
-    - name: Build environment
-      run: |
-        cd android-recovery
-        source build/envsetup.sh
-        lunch omni_a35x-eng
+      - name: Clone device tree
+        run: |
+          cd android-recovery
+          git clone ${{ inputs.DEVICE_TREE }} device/samsung/a35x
 
-    - name: Build recovery
-      run: |
-        cd android-recovery
-        export ALLOW_MISSING_DEPENDENCIES=true
-        export LC_ALL=C
+      - name: Build recovery
+        run: |
+          cd android-recovery
+          source build/envsetup.sh
+          lunch $DEVICE_MAKEFILE-eng
+          mka recoveryimage -j8
 
-        mka recoveryimage -j2
-
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: SHRP-A35X
-        path: android-recovery/out/target/product/*/recovery.img
-
-    - name: Release
-      uses: softprops/action-gh-release@v2
-      with:
-        tag_name: ${{ github.run_id }}
-        files: android-recovery/out/target/product/*/recovery.img
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: SHRP-Reborn-a35x
+          path: android-recovery/out/target/product/a35x/*.img
