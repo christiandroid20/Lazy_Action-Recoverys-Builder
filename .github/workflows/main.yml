@@ -1,139 +1,115 @@
-name: Build Recoveries
+name: SHRP Stable Builder
 
 on:
   workflow_dispatch:
-    inputs:
-      target:
-        description: 'Select device model to build'
-        required: false
-        type: choice
-        options:
-          - 'All models'
-          - 'SM-A546B'
-          - 'SM-A356E'
-          - 'SM-A546U'
-          - 'SM-A546U1'
-          - 'SM-A546S'
-          - 'SM-A546W'
-          - 'SM-A5460'
-          - 'SM-A546V'
-        default: 'All models'
-
-      products:
-        description: 'Select products to build'
-        required: false
-        type: choice
-        options:
-          - 'All products'
-          - 'TWRP'
-          - 'PBRP'
-          - 'SHRP'
-          - 'OrangeFox'
-        default: 'All products'
-
-      clean_build:
-        description: 'Clean build'
-        required: false
-        type: boolean
-        default: false
-
 
 permissions:
   contents: write
-
 
 env:
   DEVICE_TREE_URL: https://github.com/christiandroid20/shrp_device_samsung_a35x.git
   SHRP_MANIFEST: https://github.com/SHRP-Reborn/manifest.git
 
-
 jobs:
-
-  setup:
-    name: Setup Matrix
+  build:
     runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.set.outputs.matrix }}
-    steps:
-      - name: Set matrix
-        id: set
-        run: |
-          if [ "${{ github.event.inputs.products }}" == "All products" ]; then
-            echo 'matrix=["SHRP"]' >> $GITHUB_OUTPUT
-          else
-            echo "matrix=[\"${{ github.event.inputs.products }}\"]" >> $GITHUB_OUTPUT
-          fi
-
-
-  build_shrp:
-    name: Build SHRP Recovery
-    needs: setup
-    runs-on: ubuntu-latest
-    timeout-minutes: 480
 
     steps:
+      # =========================
+      # 🔧 BASE SYSTEM
+      # =========================
       - name: Free space
-        uses: rokibhasansagar/slimhub_actions@main
-
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-
-      - name: Install dependencies
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y git aria2 ccache
+          sudo apt update
+          sudo apt install -y git curl aria2 ccache bc bison build-essential \
+          ccache clang cmake flex g++ gcc git gnupg gperf imagemagick \
+          lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool \
+          libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils \
+          lzop pngcrush rsync schedtool squashfs-tools xsltproc zip unzip \
+          python3 python3-pip python-is-python3
 
-      - name: Install repo tool
+      # =========================
+      # 🐍 PYTHON 2.7 FIX (CRÍTICO)
+      # =========================
+      - name: Install Python 2.7 (FIX SHRP)
+        run: |
+          sudo apt update
+          sudo apt install -y python2
+
+          sudo ln -sf /usr/bin/python2 /usr/bin/python2.7
+          sudo ln -sf /usr/bin/python2 /usr/bin/python
+
+          python2.7 --version
+
+      # =========================
+      # 🔧 REPO TOOL
+      # =========================
+      - name: Install repo
         run: |
           mkdir -p ~/bin
           curl -o ~/bin/repo https://storage.googleapis.com/git-repo-downloads/repo
           chmod +x ~/bin/repo
           sudo ln -sf ~/bin/repo /usr/bin/repo
 
-      - name: Prepare folders
+      # =========================
+      # 📦 INIT SOURCE
+      # =========================
+      - name: Init SHRP
         run: |
-          mkdir -p $HOME/shrp
-          mkdir -p $HOME/out
+          mkdir shrp && cd shrp
+          repo init -u $SHRP_MANIFEST -b shrp-12.1 --depth=1
 
-      - name: Init source
+      # =========================
+      # 🔄 SYNC (OPTIMIZADO)
+      # =========================
+      - name: Sync SHRP (stable)
         run: |
-          cd $HOME/shrp
-          repo init -u $SHRP_MANIFEST -b shrp-12.1
+          cd shrp
+          repo sync -c -j4 --force-sync --no-tags --no-clone-bundle
 
-      - name: Sync source
-        run: |
-          cd $HOME/shrp
-          repo sync -c -j$(nproc) --force-sync
-
+      # =========================
+      # 📱 DEVICE TREE
+      # =========================
       - name: Clone device tree
         run: |
-          cd $HOME/shrp
-          git clone --depth=1 ${{ env.DEVICE_TREE_URL }} device/samsung/a35x
+          cd shrp
+          git clone --depth=1 $DEVICE_TREE_URL device/samsung/a35x
 
-      - name: Build
+      # =========================
+      # 🧠 ENV BUILD
+      # =========================
+      - name: Build setup
         run: |
-          cd $HOME/shrp
+          cd shrp
           source build/envsetup.sh
           lunch omni_a35x-eng
-          mka recoveryimage -j$(nproc)
 
-      - name: Package
+      # =========================
+      # 🏗️ BUILD
+      # =========================
+      - name: Build SHRP
         run: |
-          cd $HOME/shrp/out/target/product/a35x
-          tar -cf SHRP.tar recovery.img
-          mv SHRP.tar $HOME/out/
+          cd shrp
+          export ALLOW_MISSING_DEPENDENCIES=true
+          mka recoveryimage -j$(nproc --all)
 
-      - name: Release
+      # =========================
+      # 📦 PACKAGING
+      # =========================
+      - name: Package recovery
+        run: |
+          cd shrp/out/target/product/a35x
+          tar -cf SHRP.tar recovery.img
+          mv SHRP.tar $GITHUB_WORKSPACE/
+
+      # =========================
+      # 🚀 RELEASE FIXED
+      # =========================
+      - name: Upload Release
         uses: softprops/action-gh-release@v2
         with:
-          files: /home/runner/out/SHRP.tar
-          name: "SHRP Build"
-          tag_name: "shrp-${{ github.run_id }}"
+          files: SHRP.tar
+          tag_name: shrp-${{ github.run_id }}
+          name: SHRP Stable Build
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
