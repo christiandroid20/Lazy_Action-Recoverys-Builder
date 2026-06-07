@@ -469,7 +469,7 @@ jobs:
       - name: Sync SHRP source
         run: |
           cd $HOME/shrp-12.1
-          repo sync -j$(nproc --all) --force-sync --no-tags --no-clone-bundle
+          repo sync -c -j$(nproc --all) --force-sync --no-tags --no-clone-bundle
 
       - name: Clone device tree
         run: |
