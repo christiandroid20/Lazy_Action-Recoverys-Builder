@@ -1,8 +1,5 @@
 name: Build Recoveries
 
-permissions:
-  contents: write
-
 on:
   workflow_dispatch:
     inputs:
@@ -41,66 +38,44 @@ on:
         default: false
 
 
+permissions:
+  contents: write
+
+
 env:
   DEVICE_TREE_URL: https://github.com/christiandroid20/shrp_device_samsung_a35x.git
-  TWRP_MANIFEST: https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git
-  PBRP_MANIFEST: https://github.com/PitchBlackRecoveryProject/manifest_pb.git
   SHRP_MANIFEST: https://github.com/SHRP-Reborn/manifest.git
-  ORANGEFOX_MANIFEST: https://gitlab.com/OrangeFox/sync.git
 
 
 jobs:
+
   setup:
-    name: Setup Build Matrix
+    name: Setup Matrix
     runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      matrix: ${{ steps.set.outputs.matrix }}
     steps:
       - name: Set matrix
-        id: set-matrix
+        id: set
         run: |
           if [ "${{ github.event.inputs.products }}" == "All products" ]; then
-            echo 'matrix=["TWRP", "PBRP", "SHRP", "OrangeFox"]' >> $GITHUB_OUTPUT
+            echo 'matrix=["SHRP"]' >> $GITHUB_OUTPUT
           else
-            echo 'matrix=["${{ github.event.inputs.products }}"]' >> $GITHUB_OUTPUT
+            echo "matrix=[\"${{ github.event.inputs.products }}\"]" >> $GITHUB_OUTPUT
           fi
 
 
-  notify_workflow:
-    name: Notify Build Start
+  build_shrp:
+    name: Build SHRP Recovery
     needs: setup
     runs-on: ubuntu-latest
-    steps:
-      - name: Send Telegram Notification
-        run: |
-          curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-            -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
-            -F text="
-🚀 Build started!
-📦 Repo: ${{ github.repository }}
-🗂️ Products: ${{ github.event.inputs.products }}
-🎯 Target: ${{ github.event.inputs.target }}
-🔗 Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-            -F parse_mode="Markdown"
-
-
-  build_shrp:
-    name: Build SHRP
-    needs: [setup, notify_workflow]
-    runs-on: ubuntu-latest
     timeout-minutes: 480
-    if: ${{ contains(needs.setup.outputs.matrix, 'SHRP') }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        target: ${{ github.event.inputs.target == 'All models' && fromJson('["SM-A356B", "SM-A356E", "SM-A356U"]') || fromJson(format('["{0}"]', github.event.inputs.target || 'SM-A356E')) }}
 
     steps:
-      - name: Free up system space
+      - name: Free space
         uses: rokibhasansagar/slimhub_actions@main
 
-      - name: Checkout device tree
+      - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Setup Java
@@ -109,15 +84,10 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: 3.11
-
-      - name: Configure swap
-        uses: pierotofy/set-swap-space@master
-        with:
-          swap-size-gb: 12
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y git aria2 ccache
 
       - name: Install repo tool
         run: |
@@ -126,67 +96,44 @@ jobs:
           chmod +x ~/bin/repo
           sudo ln -sf ~/bin/repo /usr/bin/repo
 
-      - name: Setup build env
+      - name: Prepare folders
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y git aria2 ccache
+          mkdir -p $HOME/shrp
+          mkdir -p $HOME/out
 
-      - name: Make directories
+      - name: Init source
         run: |
-          mkdir -p $HOME/shrp-12.1
-          mkdir -p $HOME/shrp-build
-          mkdir -p $HOME/files
+          cd $HOME/shrp
+          repo init -u $SHRP_MANIFEST -b shrp-12.1
 
-      - name: Init SHRP source
+      - name: Sync source
         run: |
-          cd $HOME/shrp-12.1
-          repo init -u $SHRP_MANIFEST -b shrp-12.1 --depth=1
-
-      - name: Sync SHRP source
-        run: |
-          cd $HOME/shrp-12.1
-          repo sync -c -j$(nproc) --force-sync --no-tags --no-clone-bundle
+          cd $HOME/shrp
+          repo sync -c -j$(nproc) --force-sync
 
       - name: Clone device tree
         run: |
-          cd $HOME/shrp-12.1
-          git clone --depth=1 --branch shrp-12.1 ${{ env.DEVICE_TREE_URL }} device/samsung/a35x
+          cd $HOME/shrp
+          git clone --depth=1 ${{ env.DEVICE_TREE_URL }} device/samsung/a35x
 
-      - name: Build SHRP
+      - name: Build
         run: |
-          cd $HOME/shrp-12.1
-          export ALLOW_MISSING_DEPENDENCIES=true
+          cd $HOME/shrp
           source build/envsetup.sh
           lunch omni_a35x-eng
           mka recoveryimage -j$(nproc)
 
       - name: Package
         run: |
-          cd $HOME/shrp-12.1/out/target/product/a35x
-          tar cf SHRP-${{ matrix.target }}.tar recovery.img
-          cp SHRP*.tar $HOME/files/
+          cd $HOME/shrp/out/target/product/a35x
+          tar -cf SHRP.tar recovery.img
+          mv SHRP.tar $HOME/out/
 
-      - name: Create GitHub Release
+      - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          files: /home/runner/files/SHRP*
-          name: "SHRP - ${{ env.DATE }}"
+          files: /home/runner/out/SHRP.tar
+          name: "SHRP Build"
           tag_name: "shrp-${{ github.run_id }}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-
-  notify_completion:
-    name: Notify Completion
-    needs: [setup, build_shrp]
-    runs-on: ubuntu-latest
-    if: always()
-    steps:
-      - name: Send Telegram Notification
-        run: |
-          curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-            -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
-            -F text="
-✅ Build finished!
-Repo: ${{ github.repository }}
-Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
