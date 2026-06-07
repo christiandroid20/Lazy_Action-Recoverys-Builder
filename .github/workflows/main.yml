@@ -1,6 +1,8 @@
 name: Build Recoveries
 
 on:
+permissions:
+  contents: write
   workflow_dispatch:
     inputs:
       target:
