@@ -1,4 +1,4 @@
-name: SHRP Stable Build (Modern Fix)
+name: Multi Recovery PRO SPEED
 
 on:
   workflow_dispatch:
@@ -8,43 +8,56 @@ permissions:
 
 env:
   DEVICE_TREE_URL: https://github.com/christiandroid20/shrp_device_samsung_a35x.git
-  SHRP_MANIFEST: https://github.com/SHRP-Reborn/manifest.git
 
 jobs:
-  build:
+
+# =========================
+# ⚡ SHRP FAST BUILD
+# =========================
+  shrp:
     runs-on: ubuntu-latest
 
     steps:
+      - uses: actions/checkout@v4
 
       # =========================
-      # 🧹 SYSTEM SETUP (MODERN UBUNTU FIX)
+      # ⚡ CACHE REAL (GRAN MEJORA)
       # =========================
-      - name: Install dependencies (Ubuntu 22.04+ FIX)
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-shrp-${{ runner.os }}
+
+      # =========================
+      # ⚡ DEPENDENCIAS MINIMAS (MAS RAPIDO)
+      # =========================
+      - name: Install deps fast
         run: |
-          sudo dpkg --add-architecture i386
           sudo apt update
-
           sudo apt install -y \
             git curl aria2 ccache bc bison build-essential \
-            cmake flex g++ gcc git gnupg gperf imagemagick \
-            libncurses-dev libreadline-dev libssl-dev \
-            libxml2 libxml2-utils lzop pngcrush rsync schedtool \
-            squashfs-tools xsltproc zip unzip \
-            python3 python3-pip python-is-python3 \
-            libc6:i386 libstdc++6:i386 lib32z1
+            libncurses-dev libssl-dev \
+            python3
 
       # =========================
-      # 🐍 PYTHON FIX (NO PY2 NEEDED EMULATION)
+      # 🐍 PYTHON2 SOLO SI SE NECESITA
       # =========================
-      - name: Python compatibility layer
+      - name: Python2 fix (light)
         run: |
-          python3 --version
-          sudo ln -sf /usr/bin/python3 /usr/bin/python
+          cd /opt
+          sudo curl -L -o py2.tar.gz \
+          https://github.com/indygreg/python-build-standalone/releases/download/20240224/cpython-2.7.18+20240224-x86_64-unknown-linux-gnu-install_only.tar.gz
+
+          sudo tar -xzf py2.tar.gz
+          sudo mv python /opt/python2
+
+          sudo ln -sf /opt/python2/bin/python2.7 /usr/bin/python2.7
 
       # =========================
-      # 🔧 REPO TOOL
+      # ⚡ REPO TOOL
       # =========================
-      - name: Install repo tool
+      - name: repo tool
         run: |
           mkdir -p ~/bin
           curl -o ~/bin/repo https://storage.googleapis.com/git-repo-downloads/repo
@@ -52,64 +65,66 @@ jobs:
           sudo ln -sf ~/bin/repo /usr/bin/repo
 
       # =========================
-      # 📦 INIT SHRP
+      # ⚡ INIT (SHALLOW + FAST)
       # =========================
-      - name: Init SHRP source
+      - name: Init SHRP
         run: |
           mkdir shrp && cd shrp
-          repo init -u $SHRP_MANIFEST -b shrp-12.1 --depth=1
+          repo init -u https://github.com/SHRP-Reborn/manifest.git -b shrp-12.1 --depth=1
 
       # =========================
-      # 🔄 SYNC (STABLE MODE)
+      # ⚡ FAST SYNC (CLAVE DE VELOCIDAD)
       # =========================
-      - name: Sync source (stable)
+      - name: Sync SHRP FAST
         run: |
           cd shrp
-          repo sync -c -j4 --force-sync --no-tags --no-clone-bundle
+          repo sync -c \
+            --force-sync \
+            --no-tags \
+            --no-clone-bundle \
+            -j8
 
       # =========================
-      # 📱 DEVICE TREE
+      # ⚡ DEVICE TREE
       # =========================
-      - name: Clone device tree
+      - name: Device tree
         run: |
           cd shrp
           git clone --depth=1 $DEVICE_TREE_URL device/samsung/a35x
 
       # =========================
-      # 🧠 BUILD ENV
+      # ⚡ BUILD (MAX SPEED)
       # =========================
-      - name: Setup build environment
+      - name: Build SHRP FAST
         run: |
           cd shrp
           source build/envsetup.sh
           lunch omni_a35x-eng
 
-      # =========================
-      # 🏗️ BUILD
-      # =========================
-      - name: Build SHRP
-        run: |
-          cd shrp
           export ALLOW_MISSING_DEPENDENCIES=true
+          export USE_CCACHE=1
+          export CCACHE_DIR=~/.ccache
+
+          ccache -M 15G
+
           mka recoveryimage -j$(nproc --all)
 
       # =========================
-      # 📦 PACKAGE
+      # 📦 PACKAGE LIGHT
       # =========================
-      - name: Package recovery
+      - name: Package
         run: |
           cd shrp/out/target/product/a35x
           tar -cf SHRP.tar recovery.img
           mv SHRP.tar $GITHUB_WORKSPACE/
 
       # =========================
-      # 🚀 RELEASE FIXED
+      # 🚀 RELEASE FAST
       # =========================
-      - name: Create release
+      - name: Release
         uses: softprops/action-gh-release@v2
         with:
           files: SHRP.tar
           tag_name: shrp-${{ github.run_id }}
-          name: SHRP Stable Build
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
