@@ -1,4 +1,4 @@
-name: SHRP Stable Builder
+name: SHRP Stable Build (Modern Fix)
 
 on:
   workflow_dispatch:
@@ -15,36 +15,36 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+
       # =========================
-      # 🔧 BASE SYSTEM
+      # 🧹 SYSTEM SETUP (MODERN UBUNTU FIX)
       # =========================
-      - name: Free space
+      - name: Install dependencies (Ubuntu 22.04+ FIX)
         run: |
+          sudo dpkg --add-architecture i386
           sudo apt update
-          sudo apt install -y git curl aria2 ccache bc bison build-essential \
-          ccache clang cmake flex g++ gcc git gnupg gperf imagemagick \
-          lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool \
-          libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils \
-          lzop pngcrush rsync schedtool squashfs-tools xsltproc zip unzip \
-          python3 python3-pip python-is-python3
+
+          sudo apt install -y \
+            git curl aria2 ccache bc bison build-essential \
+            cmake flex g++ gcc git gnupg gperf imagemagick \
+            libncurses-dev libreadline-dev libssl-dev \
+            libxml2 libxml2-utils lzop pngcrush rsync schedtool \
+            squashfs-tools xsltproc zip unzip \
+            python3 python3-pip python-is-python3 \
+            libc6:i386 libstdc++6:i386 lib32z1
 
       # =========================
-      # 🐍 PYTHON 2.7 FIX (CRÍTICO)
+      # 🐍 PYTHON FIX (NO PY2 NEEDED EMULATION)
       # =========================
-      - name: Install Python 2.7 (FIX SHRP)
+      - name: Python compatibility layer
         run: |
-          sudo apt update
-          sudo apt install -y python2
-
-          sudo ln -sf /usr/bin/python2 /usr/bin/python2.7
-          sudo ln -sf /usr/bin/python2 /usr/bin/python
-
-          python2.7 --version
+          python3 --version
+          sudo ln -sf /usr/bin/python3 /usr/bin/python
 
       # =========================
       # 🔧 REPO TOOL
       # =========================
-      - name: Install repo
+      - name: Install repo tool
         run: |
           mkdir -p ~/bin
           curl -o ~/bin/repo https://storage.googleapis.com/git-repo-downloads/repo
@@ -52,17 +52,17 @@ jobs:
           sudo ln -sf ~/bin/repo /usr/bin/repo
 
       # =========================
-      # 📦 INIT SOURCE
+      # 📦 INIT SHRP
       # =========================
-      - name: Init SHRP
+      - name: Init SHRP source
         run: |
           mkdir shrp && cd shrp
           repo init -u $SHRP_MANIFEST -b shrp-12.1 --depth=1
 
       # =========================
-      # 🔄 SYNC (OPTIMIZADO)
+      # 🔄 SYNC (STABLE MODE)
       # =========================
-      - name: Sync SHRP (stable)
+      - name: Sync source (stable)
         run: |
           cd shrp
           repo sync -c -j4 --force-sync --no-tags --no-clone-bundle
@@ -76,9 +76,9 @@ jobs:
           git clone --depth=1 $DEVICE_TREE_URL device/samsung/a35x
 
       # =========================
-      # 🧠 ENV BUILD
+      # 🧠 BUILD ENV
       # =========================
-      - name: Build setup
+      - name: Setup build environment
         run: |
           cd shrp
           source build/envsetup.sh
@@ -94,7 +94,7 @@ jobs:
           mka recoveryimage -j$(nproc --all)
 
       # =========================
-      # 📦 PACKAGING
+      # 📦 PACKAGE
       # =========================
       - name: Package recovery
         run: |
@@ -105,7 +105,7 @@ jobs:
       # =========================
       # 🚀 RELEASE FIXED
       # =========================
-      - name: Upload Release
+      - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           files: SHRP.tar
