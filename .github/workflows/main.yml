@@ -491,11 +491,11 @@ jobs:
           export ALLOW_MISSING_DEPENDENCIES=true
           export TW_DEFAULT_LANGUAGE="en"
           if [[ "${{ github.event.inputs.clean_build }}" == "true" ]]; then
-            make clean
+            build/soong/soong_ui.bash --make-mode clean
           fi
           source build/envsetup.sh
           lunch omni_a35x-eng
-          mka recoveryimage -j$(nproc --all)
+          build/soong/soong_ui.bash --make-mode recoveryimage -j$(nproc --all)
 
       - name: Package recovery image
         run: |
