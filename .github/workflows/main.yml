@@ -36,7 +36,7 @@ on:
         default: false
 
 env:
-  DEVICE_TREE_URL: https://github.com/daglaroglou/android_device_samsung_a54x.git
+  DEVICE_TREE_URL: https://github.com/christiandroid20/shrp_device_samsung_a35x.git
   TWRP_MANIFEST: https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git
   PBRP_MANIFEST: https://github.com/PitchBlackRecoveryProject/manifest_pb.git
   SHRP_MANIFEST: https://github.com/SHRP-Reborn/manifest.git
