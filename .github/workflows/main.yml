@@ -10,7 +10,7 @@ on:
         options:
           - 'All models'
           - 'SM-A546B'
-          - 'SM-A546E'
+          - 'SM-A356E'
           - 'SM-A546U'
           - 'SM-A546U1'
           - 'SM-A546S'
@@ -187,7 +187,7 @@ jobs:
             make clean
           fi
           source build/envsetup.sh
-          lunch twrp_a54x-eng
+          lunch omni_a35x-eng
           mka recoveryimage -j$(nproc --all)
       
       - name: Package recovery image
@@ -515,7 +515,7 @@ jobs:
             make clean
           fi
           source build/envsetup.sh
-          lunch twrp_a54x-eng
+          lunch omni_a35x-eng
           mka recoveryimage -j$(nproc --all)
 
       - name: Package recovery image
