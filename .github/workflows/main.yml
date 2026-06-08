@@ -16,8 +16,14 @@ runs-on: ubuntu-latest
 ```
 steps:
 
+  # =========================================================
+  # 💾 FREE DISK SPACE
+  # =========================================================
   - name: Free Disk Space
     run: |
+      echo "Disk before cleanup:"
+      df -h
+
       sudo rm -rf /usr/share/dotnet
       sudo rm -rf /usr/local/lib/android
       sudo rm -rf /opt/ghc
@@ -25,12 +31,12 @@ steps:
 
       docker system prune -af || true
 
-      sudo apt-get clean
-      sudo rm -rf /var/lib/apt/lists/*
-
-      echo "=== DISK AFTER CLEANUP ==="
+      echo "Disk after cleanup:"
       df -h
 
+  # =========================================================
+  # ⚡ SYSTEM BASE
+  # =========================================================
   - name: Install base dependencies
     run: |
       sudo apt update
@@ -40,50 +46,61 @@ steps:
         libncurses-dev libssl-dev libreadline-dev \
         libxml2-utils zip unzip python3 python3-pip
 
+  # =========================================================
+  # 🐍 PYTHON COMPATIBILITY
+  # =========================================================
   - name: Python compatibility layer
     run: |
       sudo ln -sf /usr/bin/python3 /usr/bin/python
       sudo ln -sf /usr/bin/python3 /usr/bin/python2
       sudo ln -sf /usr/bin/python3 /usr/bin/python2.7
 
+      python --version
+
+  # =========================================================
+  # ⚡ REPO TOOL
+  # =========================================================
   - name: Install repo
     run: |
       mkdir -p ~/bin
-      curl -L https://storage.googleapis.com/git-repo-downloads/repo -o ~/bin/repo
+      curl -o ~/bin/repo https://storage.googleapis.com/git-repo-downloads/repo
       chmod +x ~/bin/repo
       sudo ln -sf ~/bin/repo /usr/bin/repo
 
+  # =========================================================
+  # ⚡ INIT SOURCE
+  # =========================================================
   - name: Init source
     run: |
       mkdir -p shrp
       cd shrp
 
-      repo init \
-        -u https://github.com/SHRP-Reborn/manifest.git \
-        -b shrp-12.1
+      repo init -u https://github.com/SHRP-Reborn/manifest.git -b shrp-12.1
 
+  # =========================================================
+  # ⚡ SYNC SOURCE
+  # =========================================================
   - name: Sync source
     run: |
       cd shrp
 
-      repo sync \
-        -c \
+      repo sync -c \
         --force-sync \
         --no-tags \
         --no-clone-bundle \
         -j2
 
+  # =========================================================
+  # 📱 DEVICE TREE
+  # =========================================================
   - name: Clone device tree
     run: |
       cd shrp
+      git clone --depth=1 $DEVICE_TREE_URL device/samsung/a35x
 
-      rm -rf device/samsung/a35x
-
-      git clone \
-        --depth=1 \
-        $DEVICE_TREE_URL \
-        device/samsung/a35x
-
+  # =========================================================
+  # ⚡ CCACHE
+  # =========================================================
   - name: Setup ccache
     run: |
       export USE_CCACHE=1
@@ -92,6 +109,9 @@ steps:
       ccache -M 8G
       ccache -z
 
+  # =========================================================
+  # 🧠 BUILD
+  # =========================================================
   - name: Build recovery
     run: |
       cd shrp
@@ -100,27 +120,36 @@ steps:
       lunch omni_a35x-eng
 
       export ALLOW_MISSING_DEPENDENCIES=true
-      export USE_CCACHE=1
 
-      mka recoveryimage -j$(nproc)
+      mka recoveryimage -j$(nproc --all)
 
+  # =========================================================
+  # 📦 PACKAGE
+  # =========================================================
   - name: Package output
     run: |
       cd shrp/out/target/product/a35x
 
-      test -f recovery.img
+      if [ ! -f recovery.img ]; then
+        echo "ERROR: recovery.img not found"
+        exit 1
+      fi
 
       tar -cf recovery.tar recovery.img
+      mv recovery.tar $GITHUB_WORKSPACE/
 
-      mv recovery.tar \
-        $GITHUB_WORKSPACE/recovery.tar
-
-  - name: Upload Artifact
+  # =========================================================
+  # 📤 ARTIFACT
+  # =========================================================
+  - name: Upload artifact
     uses: actions/upload-artifact@v4
     with:
       name: recovery-a35x
       path: recovery.tar
 
+  # =========================================================
+  # 🚀 RELEASE
+  # =========================================================
   - name: Create release
     uses: softprops/action-gh-release@v2
     with:
