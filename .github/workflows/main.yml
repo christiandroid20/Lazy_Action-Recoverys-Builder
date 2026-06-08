@@ -15,10 +15,6 @@ runs-on: ubuntu-latest
 
 ```
 steps:
-
-  # =========================================================
-  # 💾 FREE DISK SPACE
-  # =========================================================
   - name: Free Disk Space
     run: |
       echo "Disk before cleanup:"
@@ -34,9 +30,6 @@ steps:
       echo "Disk after cleanup:"
       df -h
 
-  # =========================================================
-  # ⚡ SYSTEM BASE
-  # =========================================================
   - name: Install base dependencies
     run: |
       sudo apt update
@@ -46,9 +39,6 @@ steps:
         libncurses-dev libssl-dev libreadline-dev \
         libxml2-utils zip unzip python3 python3-pip
 
-  # =========================================================
-  # 🐍 PYTHON COMPATIBILITY
-  # =========================================================
   - name: Python compatibility layer
     run: |
       sudo ln -sf /usr/bin/python3 /usr/bin/python
@@ -57,9 +47,6 @@ steps:
 
       python --version
 
-  # =========================================================
-  # ⚡ REPO TOOL
-  # =========================================================
   - name: Install repo
     run: |
       mkdir -p ~/bin
@@ -67,9 +54,6 @@ steps:
       chmod +x ~/bin/repo
       sudo ln -sf ~/bin/repo /usr/bin/repo
 
-  # =========================================================
-  # ⚡ INIT SOURCE
-  # =========================================================
   - name: Init source
     run: |
       mkdir -p shrp
@@ -77,9 +61,6 @@ steps:
 
       repo init -u https://github.com/SHRP-Reborn/manifest.git -b shrp-12.1
 
-  # =========================================================
-  # ⚡ SYNC SOURCE
-  # =========================================================
   - name: Sync source
     run: |
       cd shrp
@@ -89,72 +70,4 @@ steps:
         --no-tags \
         --no-clone-bundle \
         -j2
-
-  # =========================================================
-  # 📱 DEVICE TREE
-  # =========================================================
-  - name: Clone device tree
-    run: |
-      cd shrp
-      git clone --depth=1 $DEVICE_TREE_URL device/samsung/a35x
-
-  # =========================================================
-  # ⚡ CCACHE
-  # =========================================================
-  - name: Setup ccache
-    run: |
-      export USE_CCACHE=1
-      export CCACHE_DIR=$HOME/.ccache
-
-      ccache -M 8G
-      ccache -z
-
-  # =========================================================
-  # 🧠 BUILD
-  # =========================================================
-  - name: Build recovery
-    run: |
-      cd shrp
-
-      source build/envsetup.sh
-      lunch omni_a35x-eng
-
-      export ALLOW_MISSING_DEPENDENCIES=true
-
-      mka recoveryimage -j$(nproc --all)
-
-  # =========================================================
-  # 📦 PACKAGE
-  # =========================================================
-  - name: Package output
-    run: |
-      cd shrp/out/target/product/a35x
-
-      if [ ! -f recovery.img ]; then
-        echo "ERROR: recovery.img not found"
-        exit 1
-      fi
-
-      tar -cf recovery.tar recovery.img
-      mv recovery.tar $GITHUB_WORKSPACE/
-
-  # =========================================================
-  # 📤 ARTIFACT
-  # =========================================================
-  - name: Upload artifact
-    uses: actions/upload-artifact@v4
-    with:
-      name: recovery-a35x
-      path: recovery.tar
-
-  # =========================================================
-  # 🚀 RELEASE
-  # =========================================================
-  - name: Create release
-    uses: softprops/action-gh-release@v2
-    with:
-      files: recovery.tar
-      tag_name: build-${{ github.run_id }}
-    env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
