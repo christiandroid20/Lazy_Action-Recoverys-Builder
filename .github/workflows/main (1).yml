@@ -1,0 +1,171 @@
+name: Recovery Builder PRO Stable
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  DEVICE_TREE_URL: https://github.com/christiandroid20/shrp_device_samsung_a35x.git
+  PREBUILT_URL: https://github.com/TeamWin/android_device_samsung_a35x.git
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # =========================================================
+      # 💾 FREE DISK SPACE
+      # =========================================================
+      - name: Free Disk Space
+        run: |
+          echo "Disk before cleanup:"
+          df -h
+
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache
+
+          docker system prune -af || true
+
+          echo "Disk after cleanup:"
+          df -h
+
+      # =========================================================
+      # ⚡ SYSTEM BASE
+      # =========================================================
+      - name: Install base dependencies
+        run: |
+          sudo apt update
+
+          sudo apt install -y \
+            git curl aria2 ccache bc bison build-essential \
+            libncurses-dev libssl-dev libreadline-dev \
+            libxml2-utils zip unzip python3 python3-pip
+
+      # =========================================================
+      # 🐍 PYTHON COMPATIBILITY
+      # =========================================================
+      - name: Python compatibility layer
+        run: |
+          sudo ln -sf /usr/bin/python3 /usr/bin/python
+          sudo ln -sf /usr/bin/python3 /usr/bin/python2
+          sudo ln -sf /usr/bin/python3 /usr/bin/python2.7
+
+          python --version
+
+      # =========================================================
+      # ⚡ REPO TOOL
+      # =========================================================
+      - name: Install repo
+        run: |
+          mkdir -p ~/bin
+          curl -L https://storage.googleapis.com/git-repo-downloads/repo -o ~/bin/repo
+          chmod +x ~/bin/repo
+          sudo ln -sf ~/bin/repo /usr/bin/repo
+
+      # =========================================================
+      # ⚡ INIT SOURCE
+      # =========================================================
+      - name: Init source
+        run: |
+          mkdir -p shrp
+          cd shrp
+
+          repo init -u https://github.com/SHRP-Reborn/manifest.git -b shrp-12.1
+
+      # =========================================================
+      # ⚡ SYNC SOURCE
+      # =========================================================
+      - name: Sync source
+        run: |
+          cd shrp
+
+          repo sync -c \
+            --force-sync \
+            --no-tags \
+            --no-clone-bundle \
+            -j2
+
+      # =========================================================
+      # 📱 DEVICE TREE
+      # =========================================================
+      - name: Clone device tree
+        run: |
+          cd shrp
+          git clone --depth=1 $DEVICE_TREE_URL device/samsung/a35x
+
+      # =========================================================
+      # 📦 PREBUILT (dtb.img + dtbo.img + kernel desde TeamWin)
+      # =========================================================
+      - name: Clone prebuilt files
+        run: |
+          git clone --depth=1 -b android-12.1 $PREBUILT_URL /tmp/teamwin_a35x
+          cp /tmp/teamwin_a35x/prebuilt/dtb.img  shrp/device/samsung/a35x/prebuilt/dtb.img
+          cp /tmp/teamwin_a35x/prebuilt/dtbo.img shrp/device/samsung/a35x/prebuilt/dtbo.img
+          cp /tmp/teamwin_a35x/prebuilt/Image    shrp/device/samsung/a35x/prebuilt/Image
+          echo "Prebuilt files:"
+          ls -lh shrp/device/samsung/a35x/prebuilt/
+
+      # =========================================================
+      # ⚡ CCACHE
+      # =========================================================
+      - name: Setup ccache
+        run: |
+          export USE_CCACHE=1
+          export CCACHE_DIR=$HOME/.ccache
+
+          ccache -M 8G
+          ccache -z
+
+      # =========================================================
+      # 🧠 BUILD
+      # =========================================================
+      - name: Build recovery
+        run: |
+          cd shrp
+
+          source build/envsetup.sh
+          lunch omni_a35x-eng
+
+          export ALLOW_MISSING_DEPENDENCIES=true
+
+          mka recoveryimage -j$(nproc --all)
+
+      # =========================================================
+      # 📦 PACKAGE
+      # =========================================================
+      - name: Package output
+        run: |
+          cd shrp/out/target/product/a35x
+
+          if [ ! -f recovery.img ]; then
+            echo "ERROR: recovery.img not found"
+            exit 1
+          fi
+
+          tar -cf recovery.tar recovery.img
+          mv recovery.tar $GITHUB_WORKSPACE/
+
+      # =========================================================
+      # 📤 ARTIFACT
+      # =========================================================
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: recovery-a35x
+          path: recovery.tar
+
+      # =========================================================
+      # 🚀 RELEASE
+      # =========================================================
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: recovery.tar
+          tag_name: build-${{ github.run_id }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
