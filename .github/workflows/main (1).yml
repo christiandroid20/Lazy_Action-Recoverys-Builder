@@ -15,6 +15,15 @@ on:
           - PBRP
           - OFRP
 
+      base:
+        description: 'Android Base'
+        required: true
+        default: 'android-14.1'
+        type: choice
+        options:
+          - android-12.1
+          - android-14.1
+
 permissions:
   contents: write
 
@@ -45,12 +54,18 @@ jobs:
 
     steps:
 
+      # =========================================================
+      # FREE DISK SPACE
+      # =========================================================
       - name: Free disk space
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
           docker system prune -af || true
           df -h
 
+      # =========================================================
+      # DEPENDENCIES
+      # =========================================================
       - name: Install dependencies
         run: |
           sudo apt update -qq
@@ -58,31 +73,44 @@ jobs:
             git curl aria2 ccache bc bison build-essential \
             libncurses-dev libssl-dev libreadline-dev \
             libxml2-utils zip unzip python3 python3-pip
+
           sudo ln -sf /usr/bin/python3 /usr/bin/python
+
           mkdir -p ~/bin
           curl -L https://storage.googleapis.com/git-repo-downloads/repo -o ~/bin/repo
           chmod +x ~/bin/repo
           sudo ln -sf ~/bin/repo /usr/bin/repo
 
+      # =========================================================
+      # GIT CONFIG
+      # =========================================================
       - name: Configure git
         run: |
           git config --global user.name "ChristyGaming18"
           git config --global user.email "actions@github.com"
 
+      # =========================================================
+      # INIT MANIFEST
+      # =========================================================
       - name: Init manifest
         run: |
           mkdir -p workspace
           cd workspace
+
           case "${{ matrix.recovery }}" in
+
             SHRP)
               repo init --depth=1 -u https://github.com/SHRP-Reborn/manifest.git -b shrp-12.1
               ;;
+
             TWRP)
               repo init --depth=1 -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b twrp-12.1
               ;;
+
             PBRP)
               repo init --depth=1 -u https://github.com/PitchBlackRecoveryProject/manifest_pb.git -b android-12.1
               ;;
+
             OFRP)
               cd ..
               git clone https://gitlab.com/OrangeFox/sync.git ofox_sync
@@ -91,66 +119,105 @@ jobs:
               ;;
           esac
 
+      # =========================================================
+      # SYNC
+      # =========================================================
       - name: Sync source
         run: |
           if [ "${{ matrix.recovery }}" != "OFRP" ]; then
             cd workspace
             repo sync -c --force-sync --no-tags --no-clone-bundle -j2
-          else
-            echo "OrangeFox ya sincronizó en el paso anterior"
           fi
 
+      # =========================================================
+      # SET BASE VARIABLES
+      # =========================================================
+      - name: Set base variables
+        run: |
+          echo "BASE=${{ github.event.inputs.base }}" >> $GITHUB_ENV
+
+      # =========================================================
+      # CLONE DEVICE TREE (DYNAMIC BASE)
+      # =========================================================
       - name: Clone device tree
         run: |
-          git clone --depth=1 -b android-12.1 \
+          git clone --depth=1 -b $BASE \
             https://github.com/christiandroid20/android_device_samsung_a35x.git \
             workspace/device/samsung/a35x
 
+      # =========================================================
+      # PREBUILTS (DYNAMIC BASE)
+      # =========================================================
       - name: Clone prebuilt files
         run: |
-          git clone --depth=1 -b android-12.1 \
+          git clone --depth=1 -b $BASE \
             https://github.com/TeamWin/android_device_samsung_a35x.git \
             /tmp/teamwin_a35x
+
           mkdir -p workspace/device/samsung/a35x/prebuilt
+
           cp /tmp/teamwin_a35x/prebuilt/dtb.img  workspace/device/samsung/a35x/prebuilt/dtb.img
           cp /tmp/teamwin_a35x/prebuilt/dtbo.img workspace/device/samsung/a35x/prebuilt/dtbo.img
           cp /tmp/teamwin_a35x/prebuilt/Image    workspace/device/samsung/a35x/prebuilt/Image
-          echo "Prebuilts copiados:"
-          ls -lh workspace/device/samsung/a35x/prebuilt/
 
+      # =========================================================
+      # CCACHE
+      # =========================================================
       - name: Setup ccache
         run: |
           ccache -M 8G
           ccache -z
 
+      # =========================================================
+      # BUILD
+      # =========================================================
       - name: Build ${{ matrix.recovery }}
         run: |
           cd workspace
+
           export USE_RECOVERY=${{ matrix.recovery }}
           export USE_CCACHE=1
           export CCACHE_DIR=$HOME/.ccache
           export ALLOW_MISSING_DEPENDENCIES=true
+
           source build/envsetup.sh
-          lunch twrp_a35x-eng
+
+          if [ "$BASE" = "android-14.1" ]; then
+            lunch twrp_a35x-eng
+          else
+            lunch omni_a35x-eng
+          fi
+
           mka recoveryimage -j$(nproc --all)
 
+      # =========================================================
+      # PACKAGE OUTPUT
+      # =========================================================
       - name: Package output
         run: |
           IMG=workspace/out/target/product/a35x/recovery.img
+
           if [ ! -f "$IMG" ]; then
             echo "ERROR: recovery.img no encontrado"
             exit 1
           fi
-          OUTNAME="${{ matrix.recovery }}-a35x-$(date +%Y%m%d).img"
+
+          OUTNAME="${{ matrix.recovery }}-${{ github.event.inputs.base }}-a35x-$(date +%Y%m%d).img"
           cp "$IMG" "$GITHUB_WORKSPACE/$OUTNAME"
           echo "OUTPUT_FILE=$OUTNAME" >> $GITHUB_ENV
 
+      # =========================================================
+      # ARTIFACT
+      # =========================================================
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.recovery }}-a35x
+          name: ${{ matrix.recovery }}-${{ github.event.inputs.base }}-a35x
           path: ${{ env.OUTPUT_FILE }}
 
+      # =========================================================
+      # RELEASE
+      # =========================================================
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
@@ -159,7 +226,8 @@ jobs:
           name: "A35x Recovery Build #${{ github.run_number }}"
           body: |
             Recovery: ${{ matrix.recovery }}
-            Dispositivo: Samsung Galaxy A35x (SM-A356E)
+            Base: ${{ github.event.inputs.base }}
+            Device: Samsung Galaxy A35x (SM-A356E)
             Build: #${{ github.run_number }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
