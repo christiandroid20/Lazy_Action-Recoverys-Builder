@@ -1,171 +1,217 @@
-name: Recovery Builder PRO Stable
+name: Recovery Builder - Samsung A35x
 
 on:
   workflow_dispatch:
+    inputs:
+      recovery:
+        description: 'Recovery a compilar'
+        required: true
+        default: 'ALL'
+        type: choice
+        options:
+          - ALL
+          - SHRP
+          - TWRP
+          - PBRP
+          - OFRP
 
 permissions:
   contents: write
 
-env:
-  DEVICE_TREE_URL: https://github.com/christiandroid20/shrp_device_samsung_a35x.git
-  PREBUILT_URL: https://github.com/TeamWin/android_device_samsung_a35x.git
-
 jobs:
-  build:
+  # ============================================================
+  # MATRIX: define qué recoveries compilar
+  # ============================================================
+  prepare:
     runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Set matrix
+        id: set-matrix
+        run: |
+          INPUT="${{ github.event.inputs.recovery }}"
+          if [ "$INPUT" = "ALL" ]; then
+            echo 'matrix=["SHRP","TWRP","PBRP","OFRP"]' >> $GITHUB_OUTPUT
+          else
+            echo "matrix=[\"$INPUT\"]" >> $GITHUB_OUTPUT
+          fi
+
+  # ============================================================
+  # BUILD JOB (se repite por cada recovery en el matrix)
+  # ============================================================
+  build:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        recovery: ${{ fromJson(needs.prepare.outputs.matrix) }}
 
     steps:
 
-      # =========================================================
+      # --------------------------------------------------------
       # 💾 FREE DISK SPACE
-      # =========================================================
-      - name: Free Disk Space
+      # --------------------------------------------------------
+      - name: Free disk space
         run: |
-          echo "Disk before cleanup:"
-          df -h
-
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /opt/hostedtoolcache
-
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
           docker system prune -af || true
-
-          echo "Disk after cleanup:"
           df -h
 
-      # =========================================================
-      # ⚡ SYSTEM BASE
-      # =========================================================
-      - name: Install base dependencies
+      # --------------------------------------------------------
+      # ⚡ DEPENDENCIES
+      # --------------------------------------------------------
+      - name: Install dependencies
         run: |
-          sudo apt update
-
+          sudo apt update -qq
           sudo apt install -y \
             git curl aria2 ccache bc bison build-essential \
             libncurses-dev libssl-dev libreadline-dev \
             libxml2-utils zip unzip python3 python3-pip
-
-      # =========================================================
-      # 🐍 PYTHON COMPATIBILITY
-      # =========================================================
-      - name: Python compatibility layer
-        run: |
           sudo ln -sf /usr/bin/python3 /usr/bin/python
-          sudo ln -sf /usr/bin/python3 /usr/bin/python2
-          sudo ln -sf /usr/bin/python3 /usr/bin/python2.7
-
-          python --version
-
-      # =========================================================
-      # ⚡ REPO TOOL
-      # =========================================================
-      - name: Install repo
-        run: |
           mkdir -p ~/bin
           curl -L https://storage.googleapis.com/git-repo-downloads/repo -o ~/bin/repo
           chmod +x ~/bin/repo
           sudo ln -sf ~/bin/repo /usr/bin/repo
 
-      # =========================================================
-      # ⚡ INIT SOURCE
-      # =========================================================
-      - name: Init source
+      # --------------------------------------------------------
+      # 🔧 GIT CONFIG
+      # --------------------------------------------------------
+      - name: Configure git
         run: |
-          mkdir -p shrp
-          cd shrp
+          git config --global user.name "ChristyGaming18"
+          git config --global user.email "actions@github.com"
 
-          repo init -u https://github.com/SHRP-Reborn/manifest.git -b shrp-12.1
+      # --------------------------------------------------------
+      # 📡 INIT MANIFEST según recovery
+      # --------------------------------------------------------
+      - name: Init manifest
+        run: |
+          mkdir -p workspace
+          cd workspace
 
-      # =========================================================
-      # ⚡ SYNC SOURCE
-      # =========================================================
+          case "${{ matrix.recovery }}" in
+            SHRP)
+              repo init --depth=1 -u https://github.com/SHRP-Reborn/manifest.git -b shrp-12.1
+              ;;
+            TWRP)
+              repo init --depth=1 -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b twrp-12.1
+              ;;
+            PBRP)
+              repo init --depth=1 -u https://github.com/PitchBlackRecoveryProject/manifest_pb.git -b android-12.1
+              ;;
+            OFRP)
+              repo init --depth=1 -u https://gitlab.com/OrangeFox/sync.git -b 12.1
+              ;;
+          esac
+
+      # --------------------------------------------------------
+      # 🔄 SYNC SOURCE
+      # --------------------------------------------------------
       - name: Sync source
         run: |
-          cd shrp
+          cd workspace
+          repo sync -c --force-sync --no-tags --no-clone-bundle -j2
 
-          repo sync -c \
-            --force-sync \
-            --no-tags \
-            --no-clone-bundle \
-            -j2
-
-      # =========================================================
+      # --------------------------------------------------------
       # 📱 DEVICE TREE
-      # =========================================================
+      # --------------------------------------------------------
       - name: Clone device tree
         run: |
-          cd shrp
-          git clone --depth=1 $DEVICE_TREE_URL device/samsung/a35x
+          cd workspace
+          git clone --depth=1 -b android-12.1 \
+            https://github.com/christiandroid20/android_device_samsung_a35x.git \
+            device/samsung/a35x
 
-      # =========================================================
-      # 📦 PREBUILT (dtb.img + dtbo.img + kernel desde TeamWin)
-      # =========================================================
+      # --------------------------------------------------------
+      # 📦 PREBUILT (kernel, dtb, dtbo desde TeamWin)
+      # --------------------------------------------------------
       - name: Clone prebuilt files
         run: |
-          git clone --depth=1 -b android-12.1 $PREBUILT_URL /tmp/teamwin_a35x
-          cp /tmp/teamwin_a35x/prebuilt/dtb.img  shrp/device/samsung/a35x/prebuilt/dtb.img
-          cp /tmp/teamwin_a35x/prebuilt/dtbo.img shrp/device/samsung/a35x/prebuilt/dtbo.img
-          cp /tmp/teamwin_a35x/prebuilt/Image    shrp/device/samsung/a35x/prebuilt/Image
-          echo "Prebuilt files:"
-          ls -lh shrp/device/samsung/a35x/prebuilt/
+          git clone --depth=1 -b android-12.1 \
+            https://github.com/TeamWin/android_device_samsung_a35x.git \
+            /tmp/teamwin_a35x
+          mkdir -p workspace/device/samsung/a35x/prebuilt
+          cp /tmp/teamwin_a35x/prebuilt/dtb.img  workspace/device/samsung/a35x/prebuilt/dtb.img
+          cp /tmp/teamwin_a35x/prebuilt/dtbo.img workspace/device/samsung/a35x/prebuilt/dtbo.img
+          cp /tmp/teamwin_a35x/prebuilt/Image    workspace/device/samsung/a35x/prebuilt/Image
+          echo "Prebuilts copiados:"
+          ls -lh workspace/device/samsung/a35x/prebuilt/
 
-      # =========================================================
+      # --------------------------------------------------------
       # ⚡ CCACHE
-      # =========================================================
+      # --------------------------------------------------------
       - name: Setup ccache
         run: |
-          export USE_CCACHE=1
-          export CCACHE_DIR=$HOME/.ccache
-
           ccache -M 8G
           ccache -z
 
-      # =========================================================
-      # 🧠 BUILD
-      # =========================================================
-      - name: Build recovery
+      # --------------------------------------------------------
+      # 🏗️ BUILD
+      # --------------------------------------------------------
+      - name: Build ${{ matrix.recovery }}
         run: |
-          cd shrp
+          cd workspace
+          export USE_RECOVERY=${{ matrix.recovery }}
+          export USE_CCACHE=1
+          export CCACHE_DIR=$HOME/.ccache
+          export ALLOW_MISSING_DEPENDENCIES=true
 
           source build/envsetup.sh
-          lunch omni_a35x-eng
 
-          export ALLOW_MISSING_DEPENDENCIES=true
+          case "${{ matrix.recovery }}" in
+            SHRP)
+              lunch twrp_a35x-eng
+              ;;
+            TWRP)
+              lunch twrp_a35x-eng
+              ;;
+            PBRP)
+              lunch twrp_a35x-eng
+              ;;
+            OFRP)
+              lunch twrp_a35x-eng
+              ;;
+          esac
 
           mka recoveryimage -j$(nproc --all)
 
-      # =========================================================
+      # --------------------------------------------------------
       # 📦 PACKAGE
-      # =========================================================
+      # --------------------------------------------------------
       - name: Package output
         run: |
-          cd shrp/out/target/product/a35x
-
-          if [ ! -f recovery.img ]; then
-            echo "ERROR: recovery.img not found"
+          IMG=workspace/out/target/product/a35x/recovery.img
+          if [ ! -f "$IMG" ]; then
+            echo "ERROR: recovery.img no encontrado"
             exit 1
           fi
+          OUTNAME="${{ matrix.recovery }}-a35x-$(date +%Y%m%d).img"
+          cp "$IMG" "$GITHUB_WORKSPACE/$OUTNAME"
+          echo "OUTPUT_FILE=$OUTNAME" >> $GITHUB_ENV
 
-          tar -cf recovery.tar recovery.img
-          mv recovery.tar $GITHUB_WORKSPACE/
-
-      # =========================================================
+      # --------------------------------------------------------
       # 📤 ARTIFACT
-      # =========================================================
+      # --------------------------------------------------------
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: recovery-a35x
-          path: recovery.tar
+          name: ${{ matrix.recovery }}-a35x
+          path: ${{ env.OUTPUT_FILE }}
 
-      # =========================================================
+      # --------------------------------------------------------
       # 🚀 RELEASE
-      # =========================================================
+      # --------------------------------------------------------
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          files: recovery.tar
+          files: ${{ env.OUTPUT_FILE }}
           tag_name: build-${{ github.run_id }}
+          name: "A35x Recovery Build #${{ github.run_number }}"
+          body: |
+            Recovery: ${{ matrix.recovery }}
+            Dispositivo: Samsung Galaxy A35x (SM-A356E)
+            Build: #${{ github.run_number }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
