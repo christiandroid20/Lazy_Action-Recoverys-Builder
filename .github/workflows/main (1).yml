@@ -289,17 +289,12 @@ jobs:
       - name: Initialize SHRP source
         run: |
           cd $HOME/shrp-12.1
-          repo init -u $TWRP_MANIFEST -b twrp-12.1 --depth=1
+          repo init -u https://github.com/SHRP/manifest.git -b shrp-12.1 --depth=1
 
       - name: Sync SHRP source
         run: |
           cd $HOME/shrp-12.1
           repo sync -c -j$(nproc --all) --force-sync --no-tags --no-clone-bundle
-
-      - name: Clone SHRP vendor
-        run: |
-          cd $HOME/shrp-12.1
-          git clone --depth=1 https://github.com/SHRP-Reborn/android_vendor_shrp.git vendor/shrp || true
 
       - name: Clone device tree
         run: |
