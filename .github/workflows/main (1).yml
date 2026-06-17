@@ -280,6 +280,33 @@ jobs:
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config --global color.ui true
 
+      - name: Install Python 2.7
+        run: |
+          set +e
+          echo "Intentando instalar python2.7 vía PPA deadsnakes..."
+          sudo add-apt-repository ppa:deadsnakes/ppa -y
+          sudo apt-get update -qq
+          sudo apt-get install -y python2.7
+          if command -v python2.7 >/dev/null 2>&1; then
+            echo "python2.7 instalado correctamente vía PPA"
+            exit 0
+          fi
+
+          echo "PPA falló, usando pyenv como respaldo..."
+          curl https://pyenv.run | bash
+          export PYENV_ROOT="$HOME/.pyenv"
+          export PATH="$PYENV_ROOT/bin:$PATH"
+          eval "$(pyenv init - bash)"
+          sudo apt-get install -y build-essential libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev wget curl llvm libncurses5-dev libncursesw5-dev xz-utils tk-dev libffi-dev liblzma-dev
+          pyenv install 2.7.18
+          sudo ln -sf $HOME/.pyenv/versions/2.7.18/bin/python2.7 /usr/bin/python2.7
+
+          if ! command -v python2.7 >/dev/null 2>&1; then
+            echo "ERROR: no se pudo instalar python2.7 por ninguna vía"
+            exit 1
+          fi
+          echo "python2.7 instalado correctamente vía pyenv"
+
       - name: Make directories
         run: |
           mkdir -p $HOME/shrp-12.1
