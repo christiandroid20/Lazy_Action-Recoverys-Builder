@@ -1,0 +1,141 @@
+name: Recovery Builder PRO UI (Matrix Dashboard)
+
+on:
+  workflow_dispatch:
+    inputs:
+      device:
+        description: "Device codename"
+        required: true
+        type: string
+
+      device_tree:
+        description: "Device tree URL"
+        required: true
+        type: string
+
+      branch:
+        description: "Device tree branch"
+        required: false
+        type: string
+        default: "android-12.1"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        recovery: [twrp, shrp, orangefox]
+
+    env:
+      USE_CCACHE: 1
+      CCACHE_DIR: ${{ github.workspace }}/ccache
+
+    steps:
+      # 🧠 “INTERFAZ VISUAL” (HEADER)
+      - name: UI HEADER
+        run: |
+          echo "====================================="
+          echo "🚀 RECOVERY BUILD DASHBOARD"
+          echo "====================================="
+          echo "Recovery: ${{ matrix.recovery }}"
+          echo "Device: ${{ inputs.device }}"
+          echo "====================================="
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            git-core gnupg flex bison build-essential zip curl \
+            gcc-multilib g++-multilib libc6-dev-i386 \
+            libncurses-dev libx11-dev lib32z1-dev libgl1-mesa-dev \
+            unzip ccache python3
+
+      - name: Setup repo
+        run: |
+          mkdir -p ~/bin
+          curl -o ~/bin/repo https://storage.googleapis.com/git-repo-downloads/repo
+          chmod +x ~/bin/repo
+          echo "$HOME/bin" >> $GITHUB_PATH
+
+      # 🧠 SOURCE PANEL
+      - name: INIT PANEL
+        run: |
+          mkdir -p workspace
+          cd workspace
+
+          echo "📦 Initializing ${{ matrix.recovery }} source..."
+
+          if [ "${{ matrix.recovery }}" = "twrp" ]; then
+            repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b twrp-12.1
+          elif [ "${{ matrix.recovery }}" = "shrp" ]; then
+            repo init -u https://github.com/SHRP-Reborn/manifest.git -b shrp-12.1
+          else
+            repo init -u https://gitlab.com/OrangeFox/sync.git -b fox_12.1
+          fi
+
+      # 🧠 SYNC PANEL
+      - name: SYNC PANEL
+        run: |
+          cd workspace
+
+          echo "🔄 Syncing source (this may take time)..."
+
+          repo sync -c -j4 --force-sync --no-clone-bundle --no-tags \
+            || repo sync -c -j2 --force-sync --no-clone-bundle --no-tags
+
+      # 🧠 DEVICE PANEL
+      - name: DEVICE PANEL
+        run: |
+          cd workspace
+
+          echo "📱 Cloning device tree..."
+          git clone ${{ inputs.device_tree }} device/${{ inputs.device }} || true
+
+      # 🧠 BUILD PANEL (UI STYLE)
+      - name: BUILD PANEL
+        run: |
+          cd workspace
+
+          echo "⚙️ Starting build for ${{ matrix.recovery }}"
+
+          export ALLOW_MISSING_DEPENDENCIES=true
+          export LC_ALL=C
+          export TW_DEFAULT_LANGUAGE=en
+
+          source build/envsetup.sh
+
+          if [ "${{ matrix.recovery }}" = "twrp" ]; then
+            lunch twrp_${{ inputs.device }}-eng || lunch omni_${{ inputs.device }}-eng
+            build/soong/soong_ui.bash --make-mode recoveryimage -j$(nproc --all)
+
+          elif [ "${{ matrix.recovery }}" = "shrp" ]; then
+            lunch omni_${{ inputs.device }}-eng
+            build/soong/soong_ui.bash --make-mode recoveryimage -j$(nproc --all)
+
+          else
+            lunch omni_${{ inputs.device }}-eng || true
+            build/soong/soong_ui.bash --make-mode bacon -j$(nproc --all) || true
+          fi
+
+      # 🧠 OUTPUT PANEL
+      - name: OUTPUT PANEL
+        if: always()
+        run: |
+          cd workspace
+
+          echo "📦 Searching outputs..."
+
+          find out/target/product -type f \( -name "*.img" -o -name "*.zip" \)
+
+      # 🧠 ARTIFACT PANEL
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.recovery }}-${{ inputs.device }}
+          path: workspace/out/target/product/**/*
