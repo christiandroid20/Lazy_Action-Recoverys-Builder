@@ -1,53 +1,48 @@
-name: Recovery Builder PRO (Latest Upstream + Android 14.1 DT)
+name: SkyHawk SHRP Builder (Branch + Report)
 
 on:
   workflow_dispatch:
     inputs:
-      recovery:
-        description: "Select recovery"
+      MANIFEST_BRANCH:
+        description: "SHRP Branch (current testing)"
         required: true
+        default: "shrp-12.1"
         type: choice
         options:
-          - twrp
-          - shrp
-          - orangefox
+          - shrp-12.1
+          - shrp-9.0
+
+      DEVICE_TREE_BRANCH:
+        description: "Device tree branch"
+        required: true
+        default: "android-14.1"
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     env:
-      DEVICE: a35x
+      DEVICE_NAME: a35x
+      DEVICE_MAKEFILE: omni_a35x
       DEVICE_TREE: https://github.com/christiandroid20/android_device_samsung_a35x.git
-      DEVICE_BRANCH: android-14.1
-
-      USE_CCACHE: 1
-      CCACHE_DIR: ${{ github.workspace }}/ccache
 
     steps:
-      - name: Header
+      # =========================
+      # INSTALL
+      # =========================
+      - name: Install dependencies
         run: |
-          echo "====================================="
-          echo "🚀 LATEST RECOVERY BUILDER"
-          echo "Device: $DEVICE"
-          echo "Device branch: $DEVICE_BRANCH"
-          echo "Recovery: ${{ inputs.recovery }}"
-          echo "====================================="
-
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            git-core gnupg flex bison build-essential zip curl \
-            gcc-multilib g++-multilib libc6-dev-i386 \
-            libncurses-dev libx11-dev lib32z1-dev libgl1-mesa-dev \
-            unzip ccache python3
+          sudo apt update
+          sudo apt install -y \
+            git curl python3 ccache bc bison build-essential \
+            flex g++-multilib gcc-multilib libxml2-utils make \
+            zip unzip rsync openjdk-11-jdk
 
           sudo ln -sf /usr/bin/python3 /usr/bin/python || true
 
+      # =========================
+      # REPO TOOL
+      # =========================
       - name: Setup repo
         run: |
           mkdir -p ~/bin
@@ -56,103 +51,80 @@ jobs:
           echo "$HOME/bin" >> $GITHUB_PATH
 
       # =========================
-      # INIT (LATEST UPSTREAM)
+      # INIT SHRP
       # =========================
-      - name: Init source
+      - name: Init SHRP
         run: |
-          mkdir -p workspace
-          cd workspace
+          mkdir android-recovery
+          cd android-recovery
 
-          if [ "${{ inputs.recovery }}" = "twrp" ]; then
-            echo "🔥 TWRP latest upstream"
-            repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b main || \
-            repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b twrp-14.1 || \
-            repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b android-14.1
-
-          elif [ "${{ inputs.recovery }}" = "shrp" ]; then
-            echo "🔥 SHRP latest upstream"
-            repo init -u https://github.com/SHRP-Reborn/manifest.git -b main || \
-            repo init -u https://github.com/SHRP-Reborn/manifest.git -b shrp-14.1 || \
-            repo init -u https://github.com/SHRP-Reborn/manifest.git -b android-14.1
-
-          else
-            echo "🔥 OrangeFox latest upstream"
-            mkdir -p ~/OrangeFox_sync
-            cd ~/OrangeFox_sync
-
-            git clone https://gitlab.com/OrangeFox/sync.git
-            cd sync
-
-            ./orangefox_sync.sh --branch 14.1 --path $GITHUB_WORKSPACE/workspace
-
-            cd $GITHUB_WORKSPACE/workspace
-          fi
+          repo init -u https://github.com/SHRP-Reborn/manifest.git -b ${{ inputs.MANIFEST_BRANCH }}
 
       # =========================
       # SYNC
       # =========================
       - name: Sync source
         run: |
-          cd workspace
-          repo sync -c -j4 --force-sync --no-clone-bundle --no-tags || true
+          cd android-recovery
+
+          repo sync -c --no-tags --no-clone-bundle --force-sync -j4 || \
+          repo sync -c --no-tags --no-clone-bundle -j2
 
       # =========================
-      # DEVICE TREE (14.1)
+      # DEVICE TREE (TU BRANCH NUEVO)
       # =========================
-      - name: Device tree
+      - name: Clone device tree
         run: |
-          cd workspace
+          cd android-recovery
 
-          git clone $DEVICE_TREE device/$DEVICE -b $DEVICE_BRANCH || true
+          git clone -b ${{ inputs.DEVICE_TREE_BRANCH }} $DEVICE_TREE device/samsung/$DEVICE_NAME
 
       # =========================
-      # FIX ROOT ISSUE
+      # FIX COMMON ERROR
       # =========================
       - name: Fix recovery root
         run: |
-          cd workspace
-          mkdir -p device/samsung/$DEVICE/recovery/root || true
-          mkdir -p device/$DEVICE/recovery/root || true
+          cd android-recovery
+
+          mkdir -p device/samsung/$DEVICE_NAME/recovery/root || true
 
       # =========================
       # BUILD
       # =========================
       - name: Build recovery
         run: |
-          cd workspace
-
-          export ALLOW_MISSING_DEPENDENCIES=true
-          export LC_ALL=C
-          export TW_DEFAULT_LANGUAGE=en
+          cd android-recovery
 
           source build/envsetup.sh
-
-          if [ "${{ inputs.recovery }}" = "twrp" ]; then
-            lunch twrp_$DEVICE-eng || lunch omni_$DEVICE-eng
-            build/soong/soong_ui.bash --make-mode recoveryimage -j$(nproc --all)
-
-          elif [ "${{ inputs.recovery }}" = "shrp" ]; then
-            lunch omni_$DEVICE-eng
-            build/soong/soong_ui.bash --make-mode recoveryimage -j$(nproc --all)
-
-          else
-            lunch omni_$DEVICE-eng || true
-            m bacon -j$(nproc --all) || true
-          fi
+          lunch $DEVICE_MAKEFILE-eng || lunch omni_a35x-eng
+          mka recoveryimage -j$(nproc --all)
 
       # =========================
-      # OUTPUT
+      # OUTPUT REPORT (NUEVO)
       # =========================
-      - name: Collect output
+      - name: Build Report
         if: always()
         run: |
-          cd workspace
-          mkdir -p release
-          find out/target/product -type f \( -name "*.img" -o -name "*.zip" \) -exec cp {} release/ \; || true
+          cd android-recovery
 
+          echo "==============================="
+          echo "📊 BUILD REPORT"
+          echo "==============================="
+          echo "Device: $DEVICE_NAME"
+          echo "Device tree branch: ${{ inputs.DEVICE_TREE_BRANCH }}"
+          echo "Manifest branch: ${{ inputs.MANIFEST_BRANCH }}"
+          echo "Status files:"
+
+          ls -R out/target/product || true
+
+          echo "==============================="
+
+      # =========================
+      # ARTIFACT
+      # =========================
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.recovery }}-$DEVICE-14.1
-          path: workspace/release/*
+          name: SHRP-${{ inputs.MANIFEST_BRANCH }}-${{ inputs.DEVICE_TREE_BRANCH }}
+          path: android-recovery/out/target/product/**/*
