@@ -1,8 +1,17 @@
-name: Recovery Builder PRO UI (Matrix Dashboard)
+name: Recovery Builder PRO (PERFECT MAINTAINER FIX)
 
 on:
   workflow_dispatch:
     inputs:
+      recovery:
+        description: "Select recovery"
+        required: true
+        type: choice
+        options:
+          - twrp
+          - shrp
+          - orangefox
+
       device:
         description: "Device codename"
         required: true
@@ -23,30 +32,27 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    strategy:
-      fail-fast: false
-      matrix:
-        recovery: [twrp, shrp, orangefox]
-
     env:
       USE_CCACHE: 1
       CCACHE_DIR: ${{ github.workspace }}/ccache
 
     steps:
-      # 🧠 “INTERFAZ VISUAL” (HEADER)
       - name: UI HEADER
         run: |
           echo "====================================="
-          echo "🚀 RECOVERY BUILD DASHBOARD"
+          echo "🚀 RECOVERY BUILDER MAINTAINER"
           echo "====================================="
-          echo "Recovery: ${{ matrix.recovery }}"
+          echo "Recovery: ${{ inputs.recovery }}"
           echo "Device: ${{ inputs.device }}"
           echo "====================================="
 
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install deps
+      # =========================
+      # 🔥 DEPENDENCIES FIXED
+      # =========================
+      - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -55,6 +61,12 @@ jobs:
             libncurses-dev libx11-dev lib32z1-dev libgl1-mesa-dev \
             unzip ccache python3
 
+          # fix python2 legacy builds
+          sudo ln -sf /usr/bin/python3 /usr/bin/python || true
+
+      # =========================
+      # 🔥 REPO TOOL
+      # =========================
       - name: Setup repo
         run: |
           mkdir -p ~/bin
@@ -62,46 +74,73 @@ jobs:
           chmod +x ~/bin/repo
           echo "$HOME/bin" >> $GITHUB_PATH
 
-      # 🧠 SOURCE PANEL
-      - name: INIT PANEL
+      # =========================
+      # 🔥 INIT SOURCE
+      # =========================
+      - name: Init source
         run: |
           mkdir -p workspace
           cd workspace
 
-          echo "📦 Initializing ${{ matrix.recovery }} source..."
-
-          if [ "${{ matrix.recovery }}" = "twrp" ]; then
+          if [ "${{ inputs.recovery }}" = "twrp" ]; then
             repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b twrp-12.1
-          elif [ "${{ matrix.recovery }}" = "shrp" ]; then
+
+          elif [ "${{ inputs.recovery }}" = "shrp" ]; then
             repo init -u https://github.com/SHRP-Reborn/manifest.git -b shrp-12.1
+
           else
-            repo init -u https://gitlab.com/OrangeFox/sync.git -b fox_12.1
+            mkdir -p ~/OrangeFox_sync
+            cd ~/OrangeFox_sync
+
+            git clone https://gitlab.com/OrangeFox/sync.git
+            cd sync
+
+            ./orangefox_sync.sh --branch 12.1 --path $GITHUB_WORKSPACE/workspace
+
+            cd $GITHUB_WORKSPACE/workspace
           fi
 
-      # 🧠 SYNC PANEL
-      - name: SYNC PANEL
+      # =========================
+      # 🔥 SAFE SYNC
+      # =========================
+      - name: Sync source
         run: |
           cd workspace
 
-          echo "🔄 Syncing source (this may take time)..."
+          if [ "${{ inputs.recovery }}" != "orangefox" ]; then
+            repo sync -c -j4 --force-sync --no-clone-bundle --no-tags \
+              || repo sync -c -j2 --force-sync --no-clone-bundle --no-tags
+          fi
 
-          repo sync -c -j4 --force-sync --no-clone-bundle --no-tags \
-            || repo sync -c -j2 --force-sync --no-clone-bundle --no-tags
+      # =========================
+      # 🔥 DEVICE TREE
+      # =========================
+      - name: Clone device tree
+        run: |
+          cd workspace
+          git clone ${{ inputs.device_tree }} device/${{ inputs.device }} \
+            -b ${{ inputs.branch }} || true
 
-      # 🧠 DEVICE PANEL
-      - name: DEVICE PANEL
+      # =========================
+      # 🔥 CRITICAL FIX (TU ERROR REAL)
+      # =========================
+      - name: Fix recovery root missing
         run: |
           cd workspace
 
-          echo "📱 Cloning device tree..."
-          git clone ${{ inputs.device_tree }} device/${{ inputs.device }} || true
+          echo "🧠 Fixing missing recovery/root structure..."
 
-      # 🧠 BUILD PANEL (UI STYLE)
-      - name: BUILD PANEL
+          mkdir -p device/samsung/${{ inputs.device }}/recovery/root || true
+
+          # evita fallos SHRP por root path inexistente
+          mkdir -p device/${{ inputs.device }}/recovery/root || true
+
+      # =========================
+      # 🔥 BUILD
+      # =========================
+      - name: Build recovery
         run: |
           cd workspace
-
-          echo "⚙️ Starting build for ${{ matrix.recovery }}"
 
           export ALLOW_MISSING_DEPENDENCIES=true
           export LC_ALL=C
@@ -109,33 +148,34 @@ jobs:
 
           source build/envsetup.sh
 
-          if [ "${{ matrix.recovery }}" = "twrp" ]; then
+          if [ "${{ inputs.recovery }}" = "twrp" ]; then
             lunch twrp_${{ inputs.device }}-eng || lunch omni_${{ inputs.device }}-eng
             build/soong/soong_ui.bash --make-mode recoveryimage -j$(nproc --all)
 
-          elif [ "${{ matrix.recovery }}" = "shrp" ]; then
+          elif [ "${{ inputs.recovery }}" = "shrp" ]; then
             lunch omni_${{ inputs.device }}-eng
             build/soong/soong_ui.bash --make-mode recoveryimage -j$(nproc --all)
 
           else
+            echo "🔥 OrangeFox build"
             lunch omni_${{ inputs.device }}-eng || true
-            build/soong/soong_ui.bash --make-mode bacon -j$(nproc --all) || true
+            m bacon -j$(nproc --all) || true
           fi
 
-      # 🧠 OUTPUT PANEL
-      - name: OUTPUT PANEL
+      # =========================
+      # 🔥 OUTPUT SAFE
+      # =========================
+      - name: Collect output
         if: always()
         run: |
           cd workspace
+          mkdir -p release
 
-          echo "📦 Searching outputs..."
+          find out/target/product -type f \( -name "*.img" -o -name "*.zip" \) -exec cp {} release/ \; || true
 
-          find out/target/product -type f \( -name "*.img" -o -name "*.zip" \)
-
-      # 🧠 ARTIFACT PANEL
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.recovery }}-${{ inputs.device }}
-          path: workspace/out/target/product/**/*
+          name: ${{ inputs.recovery }}-${{ inputs.device }}
+          path: workspace/release/*
