@@ -13,9 +13,12 @@ on:
           - shrp-9.0
 
       DEVICE_TREE_BRANCH:
-        description: "Device tree branch"
+        description: "Device tree branch (fijo: tus correcciones viven aquí)"
         required: true
         default: "android-14.1"
+        type: choice
+        options:
+          - android-14.1
 
 jobs:
   build:
@@ -36,7 +39,11 @@ jobs:
           sudo apt install -y \
             git curl python3 ccache bc bison build-essential \
             flex g++-multilib gcc-multilib libxml2-utils make \
-            zip unzip rsync openjdk-11-jdk
+            zip unzip rsync openjdk-11-jdk software-properties-common
+
+          sudo add-apt-repository ppa:deadsnakes/ppa -y
+          sudo apt update
+          sudo apt install -y python2.7
 
           sudo ln -sf /usr/bin/python3 /usr/bin/python || true
 
@@ -71,7 +78,7 @@ jobs:
           repo sync -c --no-tags --no-clone-bundle -j2
 
       # =========================
-      # DEVICE TREE (TU BRANCH NUEVO)
+      # DEVICE TREE (BRANCH FIJO: android-14.1)
       # =========================
       - name: Clone device tree
         run: |
@@ -100,7 +107,16 @@ jobs:
           mka recoveryimage -j$(nproc --all)
 
       # =========================
-      # OUTPUT REPORT (NUEVO)
+      # FIX PERMISSIONS BEFORE UPLOAD
+      # =========================
+      - name: Fix permissions before upload
+        if: always()
+        run: |
+          cd android-recovery
+          sudo chmod -R a+rX out/target/product/$DEVICE_NAME || true
+
+      # =========================
+      # OUTPUT REPORT
       # =========================
       - name: Build Report
         if: always()
@@ -115,7 +131,7 @@ jobs:
           echo "Manifest branch: ${{ inputs.MANIFEST_BRANCH }}"
           echo "Status files:"
 
-          ls -R out/target/product || true
+          ls -la out/target/product/$DEVICE_NAME/*.img out/target/product/$DEVICE_NAME/*.zip 2>/dev/null || echo "No se encontraron .img o .zip"
 
           echo "==============================="
 
@@ -127,4 +143,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: SHRP-${{ inputs.MANIFEST_BRANCH }}-${{ inputs.DEVICE_TREE_BRANCH }}
-          path: android-recovery/out/target/product/**/*
+          path: |
+            android-recovery/out/target/product/${{ env.DEVICE_NAME }}/*.img
+            android-recovery/out/target/product/${{ env.DEVICE_NAME }}/*.zip
+          if-no-files-found: warn
