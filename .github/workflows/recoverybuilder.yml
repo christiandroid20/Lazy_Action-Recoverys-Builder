@@ -20,6 +20,9 @@ on:
         options:
           - android-14.1
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-22.04
@@ -107,9 +110,9 @@ jobs:
           mka recoveryimage -j$(nproc --all)
 
       # =========================
-      # FIX PERMISSIONS BEFORE UPLOAD
+      # FIX PERMISSIONS
       # =========================
-      - name: Fix permissions before upload
+      - name: Fix permissions before packaging
         if: always()
         run: |
           cd android-recovery
@@ -136,14 +139,25 @@ jobs:
           echo "==============================="
 
       # =========================
-      # ARTIFACT
+      # SET TAG NAME
       # =========================
-      - name: Upload artifacts
+      - name: Set release tag
         if: always()
-        uses: actions/upload-artifact@v4
+        run: echo "RELEASE_TAG=SHRP-${{ inputs.MANIFEST_BRANCH }}-${{ inputs.DEVICE_TREE_BRANCH }}-${{ github.run_number }}" >> $GITHUB_ENV
+
+      # =========================
+      # PUBLISH TO RELEASES
+      # =========================
+      - name: Publish to GitHub Releases
+        if: always()
+        uses: softprops/action-gh-release@v2
         with:
-          name: SHRP-${{ inputs.MANIFEST_BRANCH }}-${{ inputs.DEVICE_TREE_BRANCH }}
-          path: |
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: SHRP ${{ inputs.MANIFEST_BRANCH }} - ${{ inputs.DEVICE_TREE_BRANCH }} (build #${{ github.run_number }})
+          body: |
+            Build automático de SHRP para Samsung A35x (SM-A356E)
+            - Manifest branch: ${{ inputs.MANIFEST_BRANCH }}
+            - Device tree branch: ${{ inputs.DEVICE_TREE_BRANCH }}
+          files: |
             android-recovery/out/target/product/${{ env.DEVICE_NAME }}/*.img
             android-recovery/out/target/product/${{ env.DEVICE_NAME }}/*.zip
-          if-no-files-found: warn
