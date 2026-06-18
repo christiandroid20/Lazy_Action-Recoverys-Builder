@@ -1,4 +1,4 @@
-name: Recovery Builder PRO (PERFECT MAINTAINER FIX)
+name: Recovery Builder PRO (Latest Upstream + Android 14.1 DT)
 
 on:
   workflow_dispatch:
@@ -12,47 +12,32 @@ on:
           - shrp
           - orangefox
 
-      device:
-        description: "Device codename"
-        required: true
-        type: string
-
-      device_tree:
-        description: "Device tree URL"
-        required: true
-        type: string
-
-      branch:
-        description: "Device tree branch"
-        required: false
-        type: string
-        default: "android-12.1"
-
 jobs:
   build:
     runs-on: ubuntu-latest
 
     env:
+      DEVICE: a35x
+      DEVICE_TREE: https://github.com/christiandroid20/android_device_samsung_a35x.git
+      DEVICE_BRANCH: android-14.1
+
       USE_CCACHE: 1
       CCACHE_DIR: ${{ github.workspace }}/ccache
 
     steps:
-      - name: UI HEADER
+      - name: Header
         run: |
           echo "====================================="
-          echo "🚀 RECOVERY BUILDER MAINTAINER"
-          echo "====================================="
+          echo "🚀 LATEST RECOVERY BUILDER"
+          echo "Device: $DEVICE"
+          echo "Device branch: $DEVICE_BRANCH"
           echo "Recovery: ${{ inputs.recovery }}"
-          echo "Device: ${{ inputs.device }}"
           echo "====================================="
 
       - name: Checkout
         uses: actions/checkout@v4
 
-      # =========================
-      # 🔥 DEPENDENCIES FIXED
-      # =========================
-      - name: Install dependencies
+      - name: Install deps
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -61,12 +46,8 @@ jobs:
             libncurses-dev libx11-dev lib32z1-dev libgl1-mesa-dev \
             unzip ccache python3
 
-          # fix python2 legacy builds
           sudo ln -sf /usr/bin/python3 /usr/bin/python || true
 
-      # =========================
-      # 🔥 REPO TOOL
-      # =========================
       - name: Setup repo
         run: |
           mkdir -p ~/bin
@@ -75,7 +56,7 @@ jobs:
           echo "$HOME/bin" >> $GITHUB_PATH
 
       # =========================
-      # 🔥 INIT SOURCE
+      # INIT (LATEST UPSTREAM)
       # =========================
       - name: Init source
         run: |
@@ -83,60 +64,58 @@ jobs:
           cd workspace
 
           if [ "${{ inputs.recovery }}" = "twrp" ]; then
-            repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b twrp-12.1
+            echo "🔥 TWRP latest upstream"
+            repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b main || \
+            repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b twrp-14.1 || \
+            repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b android-14.1
 
           elif [ "${{ inputs.recovery }}" = "shrp" ]; then
-            repo init -u https://github.com/SHRP-Reborn/manifest.git -b shrp-12.1
+            echo "🔥 SHRP latest upstream"
+            repo init -u https://github.com/SHRP-Reborn/manifest.git -b main || \
+            repo init -u https://github.com/SHRP-Reborn/manifest.git -b shrp-14.1 || \
+            repo init -u https://github.com/SHRP-Reborn/manifest.git -b android-14.1
 
           else
+            echo "🔥 OrangeFox latest upstream"
             mkdir -p ~/OrangeFox_sync
             cd ~/OrangeFox_sync
 
             git clone https://gitlab.com/OrangeFox/sync.git
             cd sync
 
-            ./orangefox_sync.sh --branch 12.1 --path $GITHUB_WORKSPACE/workspace
+            ./orangefox_sync.sh --branch 14.1 --path $GITHUB_WORKSPACE/workspace
 
             cd $GITHUB_WORKSPACE/workspace
           fi
 
       # =========================
-      # 🔥 SAFE SYNC
+      # SYNC
       # =========================
       - name: Sync source
         run: |
           cd workspace
-
-          if [ "${{ inputs.recovery }}" != "orangefox" ]; then
-            repo sync -c -j4 --force-sync --no-clone-bundle --no-tags \
-              || repo sync -c -j2 --force-sync --no-clone-bundle --no-tags
-          fi
+          repo sync -c -j4 --force-sync --no-clone-bundle --no-tags || true
 
       # =========================
-      # 🔥 DEVICE TREE
+      # DEVICE TREE (14.1)
       # =========================
-      - name: Clone device tree
-        run: |
-          cd workspace
-          git clone ${{ inputs.device_tree }} device/${{ inputs.device }} \
-            -b ${{ inputs.branch }} || true
-
-      # =========================
-      # 🔥 CRITICAL FIX (TU ERROR REAL)
-      # =========================
-      - name: Fix recovery root missing
+      - name: Device tree
         run: |
           cd workspace
 
-          echo "🧠 Fixing missing recovery/root structure..."
-
-          mkdir -p device/samsung/${{ inputs.device }}/recovery/root || true
-
-          # evita fallos SHRP por root path inexistente
-          mkdir -p device/${{ inputs.device }}/recovery/root || true
+          git clone $DEVICE_TREE device/$DEVICE -b $DEVICE_BRANCH || true
 
       # =========================
-      # 🔥 BUILD
+      # FIX ROOT ISSUE
+      # =========================
+      - name: Fix recovery root
+        run: |
+          cd workspace
+          mkdir -p device/samsung/$DEVICE/recovery/root || true
+          mkdir -p device/$DEVICE/recovery/root || true
+
+      # =========================
+      # BUILD
       # =========================
       - name: Build recovery
         run: |
@@ -149,33 +128,31 @@ jobs:
           source build/envsetup.sh
 
           if [ "${{ inputs.recovery }}" = "twrp" ]; then
-            lunch twrp_${{ inputs.device }}-eng || lunch omni_${{ inputs.device }}-eng
+            lunch twrp_$DEVICE-eng || lunch omni_$DEVICE-eng
             build/soong/soong_ui.bash --make-mode recoveryimage -j$(nproc --all)
 
           elif [ "${{ inputs.recovery }}" = "shrp" ]; then
-            lunch omni_${{ inputs.device }}-eng
+            lunch omni_$DEVICE-eng
             build/soong/soong_ui.bash --make-mode recoveryimage -j$(nproc --all)
 
           else
-            echo "🔥 OrangeFox build"
-            lunch omni_${{ inputs.device }}-eng || true
+            lunch omni_$DEVICE-eng || true
             m bacon -j$(nproc --all) || true
           fi
 
       # =========================
-      # 🔥 OUTPUT SAFE
+      # OUTPUT
       # =========================
       - name: Collect output
         if: always()
         run: |
           cd workspace
           mkdir -p release
-
           find out/target/product -type f \( -name "*.img" -o -name "*.zip" \) -exec cp {} release/ \; || true
 
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.recovery }}-${{ inputs.device }}
+          name: ${{ inputs.recovery }}-$DEVICE-14.1
           path: workspace/release/*
